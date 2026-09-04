@@ -1,4 +1,4 @@
-﻿from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum
+﻿from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, Enum
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from database import Base
@@ -38,6 +38,7 @@ class Task(Base):
     deadline = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    scheduled_date = Column(Date, nullable=True)   # <-- НОВОЕ ПОЛЕ
     created_by_id = Column(Integer, ForeignKey("users.id"))
 
     created_by = relationship("User", foreign_keys=[created_by_id])

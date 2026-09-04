@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Задача: {{ task.title }}{% endblock %}
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <h1 class="h3">{{ task.title }}</h1>
+                    <a href="/" class="btn btn-outline-secondary btn-sm">← Назад</a>
+                </div>
+                <p class="text-muted">{{ task.description or 'Нет описания' }}</p>
+                <p>
+                    Статус:
+                    {% if task.status.value == 'new' %}
+                        <span class="badge bg-secondary">Новая</span>
+                    {% elif task.status.value == 'in_progress' %}
+                        <span class="badge bg-primary">В работе</span>
+                    {% elif task.status.value == 'on_review' %}
+                        <span class="badge bg-warning text-dark">На проверке</span>
+                    {% elif task.status.value == 'completed' %}
+                        <span class="badge bg-success">Завершена</span>
+                    {% endif %}
+                </p>
+                {% if task.deadline %}
+                    <p class="text-muted">Срок: {{ task.deadline.strftime('%Y-%m-%d %H:%M') }}</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">Чат задачи</h5>
+                <hr>
+                {% if comments %}
+                    {% for comment in comments %}
+                        <div class="comment">
+                            <div class="author">{{ comment.user.full_name or comment.user.username }}</div>
+                            <div class="time">{{ comment.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                            <div>{{ comment.text }}</div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">Пока нет сообщений.</p>
+                {% endif %}
+                <form method="post" action="/tasks/{{ task.id }}/comments" class="mt-4">
+                    <label class="form-label">Новое сообщение</label>
+                    <textarea class="form-control" name="text" rows="3" required></textarea>
+                    <button type="submit" class="btn btn-primary mt-2">Отправить</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,50 +1,82 @@
-﻿<!DOCTYPE html>
-<html>
-<head>
-    <title>Планировщик задач</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .task { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
-        .completed { text-decoration: line-through; color: gray; }
-        form { margin-bottom: 20px; }
-        label { display: block; margin-top: 5px; }
-    </style>
-</head>
-<body>
-    <h1>Планировщик задач</h1>
-    <p>Вы вошли как: {{ user.id }} (временная авторизация)</p>
-    <a href="/logout">Выйти</a>
+﻿{% extends "base.html" %}
+{% block title %}Главная{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1>Мои задачи</h1>
+    <button class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#newTaskForm">+ Новая задача</button>
+</div>
 
-    <h2>Новая задача</h2>
-    <form method="post" action="/tasks/create">
-        <label>Название: <input type="text" name="title" required></label>
-        <label>Описание: <textarea name="description"></textarea></label>
-        <label>Срок (в формате ГГГГ-ММ-ДДTЧЧ:ММ): <input type="text" name="deadline" placeholder="2025-12-31T23:59"></label>
-        <button type="submit">Создать задачу</button>
-    </form>
+<div class="collapse mb-4" id="newTaskForm">
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <h5 class="card-title">Создать задачу</h5>
+            <form method="post" action="/tasks/create">
+                <div class="mb-3">
+                    <label class="form-label">Название</label>
+                    <input type="text" class="form-control" name="title" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Описание</label>
+                    <textarea class="form-control" name="description" rows="3"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Срок (deadline)</label>
+                    <input type="datetime-local" class="form-control" name="deadline">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Плановая дата (для календаря)</label>
+                    <input type="date" class="form-control" name="scheduled_date">
+                </div>
+                <button type="submit" class="btn btn-success">Создать</button>
+            </form>
+        </div>
+    </div>
+</div>
 
-    <h2>Список задач</h2>
-    {% if tasks %}
+{% if tasks %}
+    <div class="row">
         {% for task in tasks %}
-            <div class="task {% if task.status.value == 'completed' %}completed{% endif %}">
-                <strong>{{ task.title }}</strong>
-                <p>{{ task.description }}</p>
-                <p>Статус: {{ task.status.value }}</p>
-                {% if task.deadline %}
-                    <p>Срок: {{ task.deadline.strftime('%Y-%m-%d %H:%M') }}</p>
-                {% endif %}
-                <form method="post" action="/tasks/{{ task.id }}/complete" style="display:inline;">
-                    {% if task.status.value != 'completed' %}
-                        <button type="submit">Отметить выполненной</button>
+        <div class="col-md-6 col-lg-4 mb-3">
+            <div class="card task-card h-100 shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <a href="/tasks/{{ task.id }}" class="text-decoration-none">{{ task.title }}</a>
+                    </h5>
+                    <p class="card-text">{{ task.description or 'Нет описания' }}</p>
+                    <p class="mb-1">
+                        Статус:
+                        {% if task.status.value == 'new' %}
+                            <span class="badge bg-secondary status-badge">Новая</span>
+                        {% elif task.status.value == 'in_progress' %}
+                            <span class="badge bg-primary status-badge">В работе</span>
+                        {% elif task.status.value == 'on_review' %}
+                            <span class="badge bg-warning text-dark status-badge">На проверке</span>
+                        {% elif task.status.value == 'completed' %}
+                            <span class="badge bg-success status-badge">Завершена</span>
+                        {% endif %}
+                    </p>
+                    {% if task.deadline %}
+                    <p class="text-muted small mb-1">Срок: {{ task.deadline.strftime('%Y-%m-%d %H:%M') }}</p>
                     {% endif %}
-                </form>
-                <form method="post" action="/tasks/{{ task.id }}/delete" style="display:inline;">
-                    <button type="submit" onclick="return confirm('Удалить задачу?')">Удалить</button>
-                </form>
+                    {% if task.scheduled_date %}
+                    <p class="text-muted small mb-1">План: {{ task.scheduled_date.strftime('%d.%m.%Y') }}</p>
+                    {% endif %}
+                </div>
+                <div class="card-footer d-flex justify-content-between">
+                    <form method="post" action="/tasks/{{ task.id }}/complete" class="d-inline">
+                        {% if task.status.value != 'completed' %}
+                            <button type="submit" class="btn btn-sm btn-outline-success">✓ Выполнено</button>
+                        {% endif %}
+                    </form>
+                    <form method="post" action="/tasks/{{ task.id }}/delete" class="d-inline">
+                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить задачу?')">Удалить</button>
+                    </form>
+                </div>
             </div>
+        </div>
         {% endfor %}
-    {% else %}
-        <p>Задач пока нет.</p>
-    {% endif %}
-</body>
-</html>
+    </div>
+{% else %}
+    <div class="alert alert-info">Задач пока нет. Создайте первую!</div>
+{% endif %}
+{% endblock %}

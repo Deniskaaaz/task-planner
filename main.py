@@ -1,5 +1,5 @@
 ﻿from fastapi import FastAPI, Request, Response, Depends, HTTPException, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +9,8 @@ from database import init_db, AsyncSessionLocal
 from models import User, Task, TaskStatus, TaskAssignee, Comment
 from auth import get_current_user, set_user_cookie, COOKIE_NAME
 from jinja2 import Environment, FileSystemLoader
-from datetime import datetime
+from datetime import datetime, date, timedelta
+import json
 
 # Настройка Jinja2
 env = Environment(loader=FileSystemLoader('templates'))
@@ -34,7 +35,6 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, user=Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
-        # Получаем ВСЕ задачи, без фильтрации по пользователю
         result = await session.execute(
             select(Task)
             .options(selectinload(Task.assignees))
@@ -80,10 +80,10 @@ async def create_task(
     title: str = Form(...),
     description: str = Form(""),
     deadline: str = Form(""),
+    scheduled_date: str = Form(""),
     user=Depends(get_current_user)
 ):
     async with AsyncSessionLocal() as session:
-        # Преобразуем deadline из строки в datetime, если задан
         deadline_dt = None
         if deadline:
             try:
@@ -91,11 +91,18 @@ async def create_task(
             except ValueError:
                 deadline_dt = None
 
-        # Создаем задачу
+        scheduled_date_dt = None
+        if scheduled_date:
+            try:
+                scheduled_date_dt = date.fromisoformat(scheduled_date)
+            except ValueError:
+                scheduled_date_dt = None
+
         task = Task(
             title=title,
             description=description,
             deadline=deadline_dt,
+            scheduled_date=scheduled_date_dt,
             created_by_id=user["id"],
             status=TaskStatus.new
         )
@@ -103,7 +110,6 @@ async def create_task(
         await session.commit()
         await session.refresh(task)
 
-        # Назначаем создателя исполнителем (пока только он)
         assignee = TaskAssignee(task_id=task.id, user_id=user["id"])
         session.add(assignee)
         await session.commit()
@@ -113,7 +119,6 @@ async def create_task(
 @app.get("/tasks/{task_id}", response_class=HTMLResponse)
 async def task_detail(task_id: int, request: Request, user=Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
-        # Получаем задачу с загрузкой исполнителей и комментариев с авторами
         result = await session.execute(
             select(Task)
             .options(
@@ -126,11 +131,7 @@ async def task_detail(task_id: int, request: Request, user=Depends(get_current_u
         if not task:
             raise StarletteHTTPException(status_code=404, detail="Задача не найдена")
 
-        # Доступ открыт для всех авторизованных пользователей
-        # (проверка доступа удалена)
-
-        # Комментарии уже загружены через selectinload
-        comments = task.comments  # используем уже загруженную связь
+        comments = task.comments
 
     html = render_template("task_detail.html", task=task, comments=comments, user=user)
     return HTMLResponse(content=html)
@@ -142,16 +143,11 @@ async def add_comment(
     user=Depends(get_current_user)
 ):
     async with AsyncSessionLocal() as session:
-        # Проверяем существование задачи
         result = await session.execute(select(Task).where(Task.id == task_id))
         task = result.scalar_one_or_none()
         if not task:
             raise StarletteHTTPException(status_code=404, detail="Задача не найдена")
 
-        # Доступ открыт всем авторизованным пользователям
-        # (проверка доступа удалена)
-
-        # Создаем комментарий
         comment = Comment(
             task_id=task_id,
             user_id=user["id"],
@@ -181,3 +177,49 @@ async def delete_task(task_id: int, user=Depends(get_current_user)):
             await session.delete(task)
             await session.commit()
     return RedirectResponse("/", status_code=302)
+
+@app.get("/calendar", response_class=HTMLResponse)
+async def calendar_page(request: Request, user=Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Task)
+            .options(selectinload(Task.assignees))
+            .order_by(Task.scheduled_date)
+        )
+        tasks = result.scalars().all()
+
+    today = date.today()
+    start_of_week = today - timedelta(days=today.weekday())
+    days = [start_of_week + timedelta(days=i) for i in range(7)]
+
+    tasks_by_day = {d: [] for d in days}
+    for task in tasks:
+        if task.scheduled_date and task.scheduled_date in days:
+            tasks_by_day[task.scheduled_date].append(task)
+
+    html = render_template(
+        "calendar.html",
+        user=user,
+        days=days,
+        tasks_by_day=tasks_by_day,
+        TaskStatus=TaskStatus
+    )
+    return HTMLResponse(content=html)
+
+@app.post("/tasks/{task_id}/move")
+async def move_task(task_id: int, scheduled_date: str = Form(...), user=Depends(get_current_user)):
+    try:
+        new_date = date.fromisoformat(scheduled_date)
+    except ValueError:
+        return JSONResponse({"error": "Invalid date"}, status_code=400)
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Task).where(Task.id == task_id))
+        task = result.scalar_one_or_none()
+        if not task:
+            return JSONResponse({"error": "Task not found"}, status_code=404)
+
+        task.scheduled_date = new_date
+        await session.commit()
+
+    return JSONResponse({"success": True})
