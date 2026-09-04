@@ -4,6 +4,7 @@ from fastapi.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from database import init_db, AsyncSessionLocal
 from models import User, Task, TaskStatus, TaskAssignee, Comment
 from auth import get_current_user, set_user_cookie, COOKIE_NAME
@@ -35,10 +36,13 @@ async def index(request: Request, user=Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         # Получаем задачи, где пользователь создатель или исполнитель
         result = await session.execute(
-            select(Task).where(
-                (Task.created_by_id == user["id"]) | 
+            select(Task)
+            .options(selectinload(Task.assignees))
+            .where(
+                (Task.created_by_id == user["id"]) |
                 (Task.assignees.any(User.id == user["id"]))
-            ).order_by(Task.created_at.desc())
+            )
+            .order_by(Task.created_at.desc())
         )
         tasks = result.scalars().all()
     html = render_template("index.html", user=user, tasks=tasks, TaskStatus=TaskStatus)
@@ -46,7 +50,7 @@ async def index(request: Request, user=Depends(get_current_user)):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page():
-    html = render_template("login.html")
+    html = render_template("login.html", user=None)
     return HTMLResponse(content=html)
 
 @app.post("/login")
@@ -109,6 +113,64 @@ async def create_task(
         await session.commit()
 
     return RedirectResponse("/", status_code=302)
+
+@app.get("/tasks/{task_id}", response_class=HTMLResponse)
+async def task_detail(task_id: int, request: Request, user=Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        # Получаем задачу с загрузкой исполнителей и комментариев с авторами
+        result = await session.execute(
+            select(Task)
+            .options(
+                selectinload(Task.assignees),
+                selectinload(Task.comments).selectinload(Comment.user)
+            )
+            .where(Task.id == task_id)
+        )
+        task = result.scalar_one_or_none()
+        if not task:
+            raise StarletteHTTPException(status_code=404, detail="Задача не найдена")
+
+        # Проверяем, имеет ли пользователь доступ (создатель или исполнитель)
+        has_access = (task.created_by_id == user["id"]) or any(
+            assignee.user_id == user["id"] for assignee in task.assignees
+        )
+        if not has_access:
+            raise StarletteHTTPException(status_code=403, detail="Нет доступа к задаче")
+
+        # Комментарии уже загружены через selectinload
+        comments = task.comments  # используем уже загруженную связь
+
+    html = render_template("task_detail.html", task=task, comments=comments, user=user)
+    return HTMLResponse(content=html)
+
+@app.post("/tasks/{task_id}/comments")
+async def add_comment(
+    task_id: int,
+    text: str = Form(...),
+    user=Depends(get_current_user)
+):
+    async with AsyncSessionLocal() as session:
+        # Проверяем существование задачи и доступ
+        result = await session.execute(select(Task).where(Task.id == task_id))
+        task = result.scalar_one_or_none()
+        if not task:
+            raise StarletteHTTPException(status_code=404, detail="Задача не найдена")
+        has_access = (task.created_by_id == user["id"]) or any(
+            assignee.user_id == user["id"] for assignee in task.assignees
+        )
+        if not has_access:
+            raise StarletteHTTPException(status_code=403, detail="Нет доступа")
+
+        # Создаем комментарий
+        comment = Comment(
+            task_id=task_id,
+            user_id=user["id"],
+            text=text
+        )
+        session.add(comment)
+        await session.commit()
+
+    return RedirectResponse(f"/tasks/{task_id}", status_code=302)
 
 @app.post("/tasks/{task_id}/complete")
 async def complete_task(task_id: int, user=Depends(get_current_user)):
