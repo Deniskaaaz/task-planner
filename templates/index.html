@@ -1,9 +1,50 @@
 ﻿<!DOCTYPE html>
 <html>
 <head>
-    <title>Task Planner</title>
+    <title>Планировщик задач</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .task { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
+        .completed { text-decoration: line-through; color: gray; }
+        form { margin-bottom: 20px; }
+        label { display: block; margin-top: 5px; }
+    </style>
 </head>
 <body>
-    <h1>Планировщик работает!</h1>
+    <h1>Планировщик задач</h1>
+    <p>Вы вошли как: {{ user.id }} (временная авторизация)</p>
+    <a href="/logout">Выйти</a>
+
+    <h2>Новая задача</h2>
+    <form method="post" action="/tasks/create">
+        <label>Название: <input type="text" name="title" required></label>
+        <label>Описание: <textarea name="description"></textarea></label>
+        <label>Срок (в формате ГГГГ-ММ-ДДTЧЧ:ММ): <input type="text" name="deadline" placeholder="2025-12-31T23:59"></label>
+        <button type="submit">Создать задачу</button>
+    </form>
+
+    <h2>Список задач</h2>
+    {% if tasks %}
+        {% for task in tasks %}
+            <div class="task {% if task.status.value == 'completed' %}completed{% endif %}">
+                <strong>{{ task.title }}</strong>
+                <p>{{ task.description }}</p>
+                <p>Статус: {{ task.status.value }}</p>
+                {% if task.deadline %}
+                    <p>Срок: {{ task.deadline.strftime('%Y-%m-%d %H:%M') }}</p>
+                {% endif %}
+                <form method="post" action="/tasks/{{ task.id }}/complete" style="display:inline;">
+                    {% if task.status.value != 'completed' %}
+                        <button type="submit">Отметить выполненной</button>
+                    {% endif %}
+                </form>
+                <form method="post" action="/tasks/{{ task.id }}/delete" style="display:inline;">
+                    <button type="submit" onclick="return confirm('Удалить задачу?')">Удалить</button>
+                </form>
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>Задач пока нет.</p>
+    {% endif %}
 </body>
 </html>
