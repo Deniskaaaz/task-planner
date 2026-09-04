@@ -34,14 +34,10 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, user=Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
-        # Получаем задачи, где пользователь создатель или исполнитель
+        # Получаем ВСЕ задачи, без фильтрации по пользователю
         result = await session.execute(
             select(Task)
             .options(selectinload(Task.assignees))
-            .where(
-                (Task.created_by_id == user["id"]) |
-                (Task.assignees.any(User.id == user["id"]))
-            )
             .order_by(Task.created_at.desc())
         )
         tasks = result.scalars().all()
@@ -130,12 +126,8 @@ async def task_detail(task_id: int, request: Request, user=Depends(get_current_u
         if not task:
             raise StarletteHTTPException(status_code=404, detail="Задача не найдена")
 
-        # Проверяем, имеет ли пользователь доступ (создатель или исполнитель)
-        has_access = (task.created_by_id == user["id"]) or any(
-            assignee.user_id == user["id"] for assignee in task.assignees
-        )
-        if not has_access:
-            raise StarletteHTTPException(status_code=403, detail="Нет доступа к задаче")
+        # Доступ открыт для всех авторизованных пользователей
+        # (проверка доступа удалена)
 
         # Комментарии уже загружены через selectinload
         comments = task.comments  # используем уже загруженную связь
@@ -150,16 +142,14 @@ async def add_comment(
     user=Depends(get_current_user)
 ):
     async with AsyncSessionLocal() as session:
-        # Проверяем существование задачи и доступ
+        # Проверяем существование задачи
         result = await session.execute(select(Task).where(Task.id == task_id))
         task = result.scalar_one_or_none()
         if not task:
             raise StarletteHTTPException(status_code=404, detail="Задача не найдена")
-        has_access = (task.created_by_id == user["id"]) or any(
-            assignee.user_id == user["id"] for assignee in task.assignees
-        )
-        if not has_access:
-            raise StarletteHTTPException(status_code=403, detail="Нет доступа")
+
+        # Доступ открыт всем авторизованным пользователям
+        # (проверка доступа удалена)
 
         # Создаем комментарий
         comment = Comment(
