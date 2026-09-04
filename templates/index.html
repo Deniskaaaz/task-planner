@@ -3,31 +3,50 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h1>Мои задачи</h1>
-    <button class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#newTaskForm">+ Новая задача</button>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newTaskModal">
+        <i class="bi bi-plus-lg"></i> Новая задача
+    </button>
 </div>
 
-<div class="collapse mb-4" id="newTaskForm">
-    <div class="card shadow-sm">
-        <div class="card-body">
-            <h5 class="card-title">Создать задачу</h5>
+<!-- Модальное окно создания задачи -->
+<div class="modal fade" id="newTaskModal" tabindex="-1" aria-labelledby="newTaskModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="newTaskModalLabel">Создать задачу</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
             <form method="post" action="/tasks/create">
-                <div class="mb-3">
-                    <label class="form-label">Название</label>
-                    <input type="text" class="form-control" name="title" required>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Название</label>
+                        <input type="text" class="form-control" name="title" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Описание</label>
+                        <textarea class="form-control" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Приоритет</label>
+                        <select class="form-select" name="priority">
+                            <option value="normal" selected>Обычный</option>
+                            <option value="low">Низкий</option>
+                            <option value="high">Высокий</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Срок (deadline)</label>
+                        <input type="datetime-local" class="form-control" name="deadline">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Плановая дата (для календаря)</label>
+                        <input type="date" class="form-control" name="scheduled_date">
+                    </div>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label">Описание</label>
-                    <textarea class="form-control" name="description" rows="3"></textarea>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-success">Создать</button>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label">Срок (deadline)</label>
-                    <input type="datetime-local" class="form-control" name="deadline">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Плановая дата (для календаря)</label>
-                    <input type="date" class="form-control" name="scheduled_date">
-                </div>
-                <button type="submit" class="btn btn-success">Создать</button>
             </form>
         </div>
     </div>
@@ -37,7 +56,7 @@
     <div class="row">
         {% for task in tasks %}
         <div class="col-md-6 col-lg-4 mb-3">
-            <div class="card task-card h-100 shadow-sm">
+            <div class="card task-card h-100 shadow-sm priority-{{ task.priority }}">
                 <div class="card-body">
                     <h5 class="card-title">
                         <a href="/tasks/{{ task.id }}" class="text-decoration-none">{{ task.title }}</a>
@@ -55,21 +74,33 @@
                             <span class="badge bg-success status-badge">Завершена</span>
                         {% endif %}
                     </p>
+                    <div class="d-flex align-items-center mt-2">
+                        <div class="me-2">
+                            {% for assignee in task.assignees %}
+                                <span class="avatar-circle" title="{{ assignee.full_name or assignee.username }}">
+                                    {{ (assignee.full_name or assignee.username)[:1]|upper }}
+                                </span>
+                            {% endfor %}
+                        </div>
+                        <small class="text-muted">
+                            {{ task.created_at.strftime('%d.%m.%Y %H:%M') }}
+                        </small>
+                    </div>
                     {% if task.deadline %}
-                    <p class="text-muted small mb-1">Срок: {{ task.deadline.strftime('%Y-%m-%d %H:%M') }}</p>
+                        <p class="text-muted small mb-1 mt-1">Срок: {{ task.deadline.strftime('%d.%m.%Y %H:%M') }}</p>
                     {% endif %}
                     {% if task.scheduled_date %}
-                    <p class="text-muted small mb-1">План: {{ task.scheduled_date.strftime('%d.%m.%Y') }}</p>
+                        <p class="text-muted small mb-1">План: {{ task.scheduled_date.strftime('%d.%m.%Y') }}</p>
                     {% endif %}
                 </div>
                 <div class="card-footer d-flex justify-content-between">
                     <form method="post" action="/tasks/{{ task.id }}/complete" class="d-inline">
                         {% if task.status.value != 'completed' %}
-                            <button type="submit" class="btn btn-sm btn-outline-success">✓ Выполнено</button>
+                            <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check2"></i> Выполнено</button>
                         {% endif %}
                     </form>
                     <form method="post" action="/tasks/{{ task.id }}/delete" class="d-inline">
-                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить задачу?')">Удалить</button>
+                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить задачу?')"><i class="bi bi-trash"></i> Удалить</button>
                     </form>
                 </div>
             </div>
