@@ -1,9 +1,9 @@
 ﻿{% extends "base.html" %}
 {% block title %}Главная{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h1>Мои задачи</h1>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newTaskModal">
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>📋 Мои задачи</h1>
+    <button class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#newTaskModal">
         <i class="bi bi-plus-lg"></i> Новая задача
     </button>
 </div>
@@ -12,9 +12,9 @@
 <div class="modal fade" id="newTaskModal" tabindex="-1" aria-labelledby="newTaskModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <div class="modal-header">
+            <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title" id="newTaskModalLabel">Создать задачу</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Закрыть"></button>
             </div>
             <form method="post" action="/tasks/create">
                 <div class="modal-body">
@@ -55,25 +55,29 @@
 {% if tasks %}
     <div class="row">
         {% for task in tasks %}
-        <div class="col-md-6 col-lg-4 mb-3">
-            <div class="card task-card h-100 shadow-sm priority-{{ task.priority }}">
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card task-card h-100 priority-{{ task.priority }}">
                 <div class="card-body">
                     <h5 class="card-title">
                         <a href="/tasks/{{ task.id }}" class="text-decoration-none">{{ task.title }}</a>
                     </h5>
                     <p class="card-text">{{ task.description or 'Нет описания' }}</p>
-                    <p class="mb-1">
-                        Статус:
+                    <div class="d-flex flex-wrap gap-2 mb-2">
                         {% if task.status.value == 'new' %}
-                            <span class="badge bg-secondary status-badge">Новая</span>
+                            <span class="badge bg-secondary">Новая</span>
                         {% elif task.status.value == 'in_progress' %}
-                            <span class="badge bg-primary status-badge">В работе</span>
+                            <span class="badge bg-primary">В работе</span>
                         {% elif task.status.value == 'on_review' %}
-                            <span class="badge bg-warning text-dark status-badge">На проверке</span>
+                            <span class="badge bg-warning text-dark">На проверке</span>
                         {% elif task.status.value == 'completed' %}
-                            <span class="badge bg-success status-badge">Завершена</span>
+                            <span class="badge bg-success">Завершена</span>
                         {% endif %}
-                    </p>
+                        {% if task.priority == 'high' %}
+                            <span class="badge bg-danger">Высокий приоритет</span>
+                        {% elif task.priority == 'low' %}
+                            <span class="badge bg-info">Низкий приоритет</span>
+                        {% endif %}
+                    </div>
                     <div class="d-flex align-items-center mt-2">
                         <div class="me-2">
                             {% for assignee in task.assignees %}
@@ -82,9 +86,7 @@
                                 </span>
                             {% endfor %}
                         </div>
-                        <small class="text-muted">
-                            {{ task.created_at.strftime('%d.%m.%Y %H:%M') }}
-                        </small>
+                        <small class="text-muted">{{ task.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
                     </div>
                     {% if task.deadline %}
                         <p class="text-muted small mb-1 mt-1">Срок: {{ task.deadline.strftime('%d.%m.%Y %H:%M') }}</p>
@@ -93,7 +95,7 @@
                         <p class="text-muted small mb-1">План: {{ task.scheduled_date.strftime('%d.%m.%Y') }}</p>
                     {% endif %}
                 </div>
-                <div class="card-footer d-flex justify-content-between">
+                <div class="card-footer d-flex justify-content-between align-items-center">
                     <form method="post" action="/tasks/{{ task.id }}/complete" class="d-inline">
                         {% if task.status.value != 'completed' %}
                             <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check2"></i> Выполнено</button>

@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Календарь{% endblock %}
 {% block content %}
-<h1 class="mb-4"><i class="bi bi-calendar-week"></i> Планирование по дням</h1>
+<h1 class="mb-4">📅 Планирование по дням</h1>
 
 <div class="row">
     {% for day in days %}
     <div class="col day-column {% if day == today %}today{% endif %} {% if day.weekday() >= 5 %}weekend{% endif %}"
          data-date="{{ day.isoformat() }}"
-         style="min-height: 400px; border: 1px solid #dee2e6; border-radius: 5px; margin: 5px; padding: 10px; background-color: #ffffff;">
+         style="min-height: 400px; border: 1px solid #dee2e6; border-radius: 12px; margin: 5px; padding: 10px;">
         <h5 class="text-center">{{ day.strftime('%A') }}</h5>
         <p class="text-center text-muted small">{{ day.strftime('%d.%m.%Y') }}</p>
         <hr>
@@ -38,7 +38,6 @@
             card.addEventListener('dragstart', function(e) {
                 e.dataTransfer.setData('text/plain', this.dataset.taskId);
                 this.style.opacity = '0.4';
-                // Запрещаем переход по ссылке во время перетаскивания
                 this.querySelectorAll('a').forEach(link => link.style.pointerEvents = 'none');
             });
             card.addEventListener('dragend', function() {
@@ -50,7 +49,8 @@
         containers.forEach(container => {
             container.addEventListener('dragover', function(e) {
                 e.preventDefault();
-                this.style.backgroundColor = '#f1f8ff';
+                this.style.backgroundColor = 'rgba(102, 126, 234, 0.2)';
+                this.style.transition = 'background-color 0.3s';
             });
             container.addEventListener('dragleave', function() {
                 this.style.backgroundColor = '';
@@ -75,7 +75,6 @@
                         if (card) {
                             this.appendChild(card);
                             card.style.opacity = '1';
-                            // Восстанавливаем ссылки
                             card.querySelectorAll('a').forEach(link => link.style.pointerEvents = '');
                         }
                     } else {
