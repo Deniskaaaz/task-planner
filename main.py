@@ -81,7 +81,6 @@ async def register(
     full_name: str = Form("")
 ):
     async with AsyncSessionLocal() as session:
-        # Проверяем, существует ли пользователь
         result = await session.execute(select(User).where(User.username == username))
         existing = result.scalar_one_or_none()
         if existing:
@@ -112,13 +111,14 @@ async def logout():
 # ---------- Профиль ----------
 @app.get("/profile", response_class=HTMLResponse)
 async def profile_page(request: Request, user=Depends(get_current_user)):
+    success = request.query_params.get("success") == "1"
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(User).where(User.id == user.id))
         db_user = result.scalar_one_or_none()
-    html = render_template("profile.html", user=db_user, error=None)
+    html = render_template("profile.html", user=db_user, error=None, success=success)
     return HTMLResponse(content=html)
 
-@app.post("/profile", response_class=HTMLResponse)
+@app.post("/profile")
 async def update_profile(
     telegram_id: str = Form(""),
     user=Depends(get_current_user)
@@ -129,11 +129,10 @@ async def update_profile(
         if db_user:
             db_user.telegram_id = telegram_id.strip() or None
             await session.commit()
-            await session.refresh(db_user)
-            html = render_template("profile.html", user=db_user, error=None)
-            return HTMLResponse(content=html)
+            # Редирект на страницу профиля с параметром success
+            return RedirectResponse("/profile?success=1", status_code=302)
         else:
-            html = render_template("profile.html", user=user, error="Пользователь не найден")
+            html = render_template("profile.html", user=user, error="Пользователь не найден", success=False)
             return HTMLResponse(content=html)
 
 # ---------- Задачи ----------
@@ -167,19 +166,19 @@ async def create_task(
             deadline=deadline_dt,
             scheduled_date=scheduled_date_dt,
             priority=priority,
-            created_by_id=user.id,          # было user["id"]
+            created_by_id=user.id,
             status=TaskStatus.new
         )
         session.add(task)
         await session.commit()
         await session.refresh(task)
 
-        assignee = TaskAssignee(task_id=task.id, user_id=user.id)  # было user["id"]
+        assignee = TaskAssignee(task_id=task.id, user_id=user.id)
         session.add(assignee)
         await session.commit()
 
         # Уведомление создателю задачи
-        creator = await session.get(User, user.id)  # было user["id"]
+        creator = await session.get(User, user.id)
         if creator and creator.telegram_id:
             await send_telegram_notification(creator.telegram_id, f"Создана задача: {title}")
 
@@ -223,14 +222,14 @@ async def add_comment(
 
         comment = Comment(
             task_id=task_id,
-            user_id=user.id,              # было user["id"]
+            user_id=user.id,
             text=text
         )
         session.add(comment)
         await session.commit()
 
         # Уведомляем всех участников задачи, кроме автора комментария
-        recipients = [a for a in task.assignees if a.id != user.id]   # было user["id"]
+        recipients = [a for a in task.assignees if a.id != user.id]
         for recipient in recipients:
             if recipient.telegram_id:
                 await send_telegram_notification(
