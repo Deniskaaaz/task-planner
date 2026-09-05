@@ -5,10 +5,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from database import init_db, AsyncSessionLocal
-from models import User, Task, TaskStatus, TaskAssignee, Comment
+from models import User, Task, TaskStatus, TaskAssignee, Comment, UserRole
 from auth import get_current_user, set_user_cookie, COOKIE_NAME, hash_password, verify_password
 from jinja2 import Environment, FileSystemLoader
 from datetime import datetime, date, timedelta
@@ -20,6 +20,16 @@ env = Environment(loader=FileSystemLoader('templates'))
 def render_template(name: str, **kwargs) -> str:
     template = env.get_template(name)
     return template.render(**kwargs)
+
+def is_admin_telegram_id(telegram_id: str) -> bool:
+    """Проверяет, входит ли telegram_id в список администраторов из окружения."""
+    if not telegram_id:
+        return False
+    admin_ids_str = os.environ.get("ADMIN_TELEGRAM_IDS", "")
+    if not admin_ids_str:
+        return False
+    admin_ids = [x.strip() for x in admin_ids_str.split(",") if x.strip()]
+    return telegram_id.strip() in admin_ids
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -78,7 +88,8 @@ async def register_page():
 async def register(
     username: str = Form(...),
     password: str = Form(...),
-    full_name: str = Form("")
+    full_name: str = Form(""),
+    telegram_id: str = Form("")   # добавлено необязательное поле
 ):
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(User).where(User.username == username))
@@ -87,12 +98,15 @@ async def register(
             return HTMLResponse(render_template("register.html", error="Пользователь уже существует", user=None), status_code=400)
 
         hashed = hash_password(password)
+        # Определяем роль на основе telegram_id
+        role = UserRole.admin if is_admin_telegram_id(telegram_id) else UserRole.executor
+
         new_user = User(
             username=username,
             password_hash=hashed,
             full_name=full_name or username,
-            telegram_id=None,
-            role="executor"
+            telegram_id=telegram_id.strip() or None,
+            role=role
         )
         session.add(new_user)
         await session.commit()
@@ -128,14 +142,21 @@ async def update_profile(
         db_user = result.scalar_one_or_none()
         if db_user:
             db_user.telegram_id = telegram_id.strip() or None
+            # Обновляем роль при необходимости
+            if is_admin_telegram_id(db_user.telegram_id):
+                db_user.role = UserRole.admin
+            # Если telegram_id не админский, оставляем текущую роль (не понижаем)
             await session.commit()
-            # Редирект на страницу профиля с параметром success
+            await session.refresh(db_user)
             return RedirectResponse("/profile?success=1", status_code=302)
         else:
             html = render_template("profile.html", user=user, error="Пользователь не найден", success=False)
             return HTMLResponse(content=html)
 
 # ---------- Задачи ----------
+# (все остальные эндпоинты без изменений, кроме добавления админ-панели)
+# ... (код задач, календаря, статистики, админки представлен ниже)
+
 @app.post("/tasks/create")
 async def create_task(
     title: str = Form(...),
@@ -352,3 +373,68 @@ async def stats_page(request: Request, user=Depends(get_current_user)):
         now=now
     )
     return HTMLResponse(content=html)
+
+# ---------- Админ-панель ----------
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role != UserRole.admin:
+        raise StarletteHTTPException(status_code=403, detail="Только для администратора")
+    return user
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request, admin: User = Depends(require_admin)):
+    async with AsyncSessionLocal() as session:
+        users_result = await session.execute(select(User).order_by(User.id))
+        users = users_result.scalars().all()
+
+        tasks_result = await session.execute(
+            select(Task)
+            .options(selectinload(Task.created_by), selectinload(Task.assignees))
+            .order_by(Task.created_at.desc())
+        )
+        tasks = tasks_result.scalars().all()
+
+    html = render_template("admin.html", user=admin, users=users, tasks=tasks, UserRole=UserRole)
+    return HTMLResponse(content=html)
+
+@app.post("/admin/users/{user_id}/role")
+async def change_user_role(
+    user_id: int,
+    new_role: str = Form(...),
+    admin: User = Depends(require_admin)
+):
+    if new_role not in [r.value for r in UserRole]:
+        return RedirectResponse("/admin", status_code=302)
+
+    async with AsyncSessionLocal() as session:
+        user_to_change = await session.get(User, user_id)
+        if user_to_change:
+            user_to_change.role = UserRole(new_role)
+            await session.commit()
+
+    return RedirectResponse("/admin", status_code=302)
+
+@app.post("/admin/users/{user_id}/delete")
+async def delete_user(
+    user_id: int,
+    admin: User = Depends(require_admin)
+):
+    async with AsyncSessionLocal() as session:
+        user_to_delete = await session.get(User, user_id)
+        if user_to_delete:
+            await session.delete(user_to_delete)
+            await session.commit()
+
+    return RedirectResponse("/admin", status_code=302)
+
+@app.post("/admin/tasks/{task_id}/delete")
+async def admin_delete_task(
+    task_id: int,
+    admin: User = Depends(require_admin)
+):
+    async with AsyncSessionLocal() as session:
+        task_to_delete = await session.get(Task, task_id)
+        if task_to_delete:
+            await session.delete(task_to_delete)
+            await session.commit()
+
+    return RedirectResponse("/admin", status_code=302)
