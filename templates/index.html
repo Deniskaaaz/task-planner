@@ -8,6 +8,23 @@
     </button>
 </div>
 
+<!-- Прогресс-бар выполнения -->
+{% set total_tasks = tasks|length %}
+{% set completed_tasks = tasks|selectattr('status.value', 'equalto', 'completed')|list|length %}
+{% set percent = (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0 %}
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span>Выполнение задач</span>
+            <strong>{{ percent|round(1) }}%</strong>
+        </div>
+        <div class="progress" style="height: 10px;">
+            <div class="progress-bar bg-success" role="progressbar" style="width: {{ percent }}%;" 
+                 aria-valuenow="{{ percent }}" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+    </div>
+</div>
+
 <!-- Модальное окно создания задачи -->
 <div class="modal fade" id="newTaskModal" tabindex="-1" aria-labelledby="newTaskModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -81,7 +98,7 @@
                     <div class="d-flex align-items-center mt-2">
                         <div class="me-2">
                             {% for assignee in task.assignees %}
-                                <span class="avatar-circle" title="{{ assignee.full_name or assignee.username }}">
+                                <span class="avatar-circle" title="{{ assignee.full_name or assignee.username }}" data-bs-toggle="tooltip">
                                     {{ (assignee.full_name or assignee.username)[:1]|upper }}
                                 </span>
                             {% endfor %}
@@ -96,13 +113,13 @@
                     {% endif %}
                 </div>
                 <div class="card-footer d-flex justify-content-between align-items-center">
-                    <form method="post" action="/tasks/{{ task.id }}/complete" class="d-inline">
+                    <form method="post" action="/tasks/{{ task.id }}/complete" class="complete-form d-inline">
                         {% if task.status.value != 'completed' %}
                             <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check2"></i> Выполнено</button>
                         {% endif %}
                     </form>
-                    <form method="post" action="/tasks/{{ task.id }}/delete" class="d-inline">
-                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить задачу?')"><i class="bi bi-trash"></i> Удалить</button>
+                    <form method="post" action="/tasks/{{ task.id }}/delete" class="delete-form d-inline">
+                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> Удалить</button>
                     </form>
                 </div>
             </div>
@@ -112,4 +129,29 @@
 {% else %}
     <div class="alert alert-info">Задач пока нет. Создайте первую!</div>
 {% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Перехват отправки формы завершения задачи для конфетти
+    document.querySelectorAll('.complete-form').forEach(form => {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            fireConfetti();
+            showToast('Задача выполнена!', 'success');
+            this.submit();
+        });
+    });
+
+    // Перехват удаления для тоста
+    document.querySelectorAll('.delete-form').forEach(form => {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (confirm('Удалить задачу?')) {
+                showToast('Задача удалена', 'error');
+                this.submit();
+            }
+        });
+    });
+});
+</script>
 {% endblock %}

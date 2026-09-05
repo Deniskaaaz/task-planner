@@ -37,11 +37,11 @@
         taskCards.forEach(card => {
             card.addEventListener('dragstart', function(e) {
                 e.dataTransfer.setData('text/plain', this.dataset.taskId);
-                this.style.opacity = '0.4';
+                this.classList.add('dragging');
                 this.querySelectorAll('a').forEach(link => link.style.pointerEvents = 'none');
             });
             card.addEventListener('dragend', function() {
-                this.style.opacity = '1';
+                this.classList.remove('dragging');
                 this.querySelectorAll('a').forEach(link => link.style.pointerEvents = '');
             });
         });
@@ -74,16 +74,17 @@
                         const card = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
                         if (card) {
                             this.appendChild(card);
-                            card.style.opacity = '1';
+                            card.classList.remove('dragging');
                             card.querySelectorAll('a').forEach(link => link.style.pointerEvents = '');
+                            showToast('Задача перенесена', 'success');
                         }
                     } else {
-                        alert('Ошибка при перемещении');
+                        showToast('Ошибка при перемещении', 'error');
                     }
                 })
                 .catch(err => {
                     console.error(err);
-                    alert('Серверная ошибка');
+                    showToast('Серверная ошибка', 'error');
                 });
             });
         });

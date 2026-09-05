@@ -89,7 +89,7 @@ async def register(
     username: str = Form(...),
     password: str = Form(...),
     full_name: str = Form(""),
-    telegram_id: str = Form("")   # добавлено необязательное поле
+    telegram_id: str = Form("")
 ):
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(User).where(User.username == username))
@@ -145,7 +145,6 @@ async def update_profile(
             # Обновляем роль при необходимости
             if is_admin_telegram_id(db_user.telegram_id):
                 db_user.role = UserRole.admin
-            # Если telegram_id не админский, оставляем текущую роль (не понижаем)
             await session.commit()
             await session.refresh(db_user)
             return RedirectResponse("/profile?success=1", status_code=302)
@@ -154,9 +153,6 @@ async def update_profile(
             return HTMLResponse(content=html)
 
 # ---------- Задачи ----------
-# (все остальные эндпоинты без изменений, кроме добавления админ-панели)
-# ... (код задач, календаря, статистики, админки представлен ниже)
-
 @app.post("/tasks/create")
 async def create_task(
     title: str = Form(...),
