@@ -1,0 +1,14 @@
+﻿version: '3.8'
+
+services:
+  planner:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/planner.db
+      - SECRET_KEY=devsecret
+    mem_limit: 200m
+    cpus: 0.5

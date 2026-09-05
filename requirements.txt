@@ -1,5 +1,7 @@
-fastapi
-uvicorn[standard]
-jinja2
-aiogram
-python-multipart
+﻿fastapi==0.141.1
+uvicorn[standard]==0.52.4
+jinja2==3.1.6
+aiogram==3.31.0
+python-multipart==0.0.32
+sqlalchemy==2.0.36
+aiosqlite==0.20.0
