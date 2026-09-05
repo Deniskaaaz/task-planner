@@ -313,10 +313,12 @@ async def update_task_status(
         return JSONResponse({"error": "Invalid status"}, status_code=400)
 
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Task).where(Task.id == task_id))
-        task = result.scalar_one_or_none()
+        task = await session.get(Task, task_id)
         if not task:
             return JSONResponse({"error": "Task not found"}, status_code=404)
+        task.status = status_enum
+        await session.commit()
+        return JSONResponse({"success": True})
 
         task.status = status_enum
         await session.commit()
@@ -478,6 +480,27 @@ async def stats_page(request: Request, user=Depends(get_current_user)):
         upcoming=upcoming,
         now=now
     )
+    return HTMLResponse(content=html)
+
+@app.get("/board", response_class=HTMLResponse)
+async def board_page(request: Request, user=Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Task)
+            .options(selectinload(Task.assignees))
+            .order_by(Task.created_at.desc())
+        )
+        tasks = result.scalars().all()
+
+    # Группируем по статусам
+    columns = {
+        "new": [t for t in tasks if t.status == TaskStatus.new],
+        "in_progress": [t for t in tasks if t.status == TaskStatus.in_progress],
+        "on_review": [t for t in tasks if t.status == TaskStatus.on_review],
+        "completed": [t for t in tasks if t.status == TaskStatus.completed],
+    }
+
+    html = render_template("board.html", user=user, columns=columns, TaskStatus=TaskStatus)
     return HTMLResponse(content=html)
 
 # ---------- Админ-панель ----------
