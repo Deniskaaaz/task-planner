@@ -119,15 +119,15 @@
                 <div class="d-flex align-items-center mt-2">
                     <div class="me-2">
                         {% for assignee in task.assignees %}
-                            {% if assignee.telegram_id %}
                             <span class="avatar-circle" data-bs-toggle="tooltip" title="{{ assignee.full_name or assignee.username }}">
-                                <img src="https://t.me/i/userpic/{{ assignee.telegram_id }}" alt="">
-                            </span>
-                            {% else %}
-                            <span class="avatar-circle" data-bs-toggle="tooltip" title="{{ assignee.full_name or assignee.username }}">
+                                {% if assignee.telegram_id %}
+                                <img src="https://t.me/i/userpic/{{ assignee.telegram_id }}" alt=""
+                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
+                                <span style="display:none;">{{ (assignee.full_name or assignee.username)[:1]|upper }}</span>
+                                {% else %}
                                 {{ (assignee.full_name or assignee.username)[:1]|upper }}
+                                {% endif %}
                             </span>
-                            {% endif %}
                         {% endfor %}
                     </div>
                     <small class="text-muted">{{ task.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
