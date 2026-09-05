@@ -3,15 +3,20 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>📋 Мои задачи</h1>
-    <button class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#newTaskModal">
-        <i class="bi bi-plus-lg"></i> Новая задача
-    </button>
+    <div>
+        <a href="/export/csv" class="btn btn-outline-secondary me-2" data-bs-toggle="tooltip" title="Экспорт в CSV">
+            <i class="bi bi-download"></i>
+        </a>
+        <button class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#newTaskModal" id="newTaskBtn">
+            <i class="bi bi-plus-lg"></i> Новая задача
+        </button>
+    </div>
 </div>
 
 <!-- Поиск и фильтры -->
 <div class="search-box">
     <i class="bi bi-search"></i>
-    <input type="text" id="liveSearch" class="form-control" placeholder="Поиск по задачам..." value="{{ current_search }}">
+    <input type="text" id="liveSearch" class="form-control" placeholder="Поиск по задачам... (нажмите /)" value="{{ current_search }}">
 </div>
 <div class="filters mb-3">
     <form method="get" action="/" class="d-flex gap-2 flex-wrap">
@@ -58,7 +63,6 @@
     </div>
 </div>
 
-<!-- Список задач -->
 {% if tasks %}
 <div class="row" id="tasksContainer">
     {% for task in tasks %}
@@ -68,13 +72,21 @@
          data-status="{{ task.status.value }}" 
          data-priority="{{ task.priority }}"
          data-created="{{ task.created_at.timestamp() }}"
-         {% if task.deadline %}data-deadline="{{ task.deadline.timestamp() }}"{% endif %}>
-        <div class="card task-card h-100 priority-{{ task.priority }}" data-aos="fade-up" data-aos-delay="{{ loop.index0 * 50 }}" data-task-id="{{ task.id }}">
+         {% if task.deadline %}data-deadline="{{ task.deadline.timestamp() }}"{% endif %}
+         data-task-id="{{ task.id }}">
+        <div class="card task-card h-100 priority-{{ task.priority }}" data-aos="fade-up" data-aos-delay="{{ loop.index0 * 30 }}">
+            {% if task.pinned %}
+            <span class="badge bg-warning text-dark position-absolute top-0 end-0 m-2"><i class="bi bi-pin-angle-fill"></i></span>
+            {% endif %}
             <div class="card-body">
                 <h5 class="card-title">
-                    <a href="/tasks/{{ task.id }}" class="text-decoration-none">{{ task.title }}</a>
+                    <a href="/tasks/{{ task.id }}" class="text-decoration-none quick-view" data-task-id="{{ task.id }}" 
+                       data-bs-toggle="tooltip" data-bs-placement="top" title="Открыть быстрый просмотр">{{ task.title }}</a>
                 </h5>
-                <p class="card-text">{{ task.description or 'Нет описания' }}</p>
+                <p class="card-text task-description">{{ task.description or 'Нет описания' }}</p>
+                {% if task.description and task.description|length > 100 %}
+                <button class="btn btn-link btn-sm p-0 toggle-description" data-state="collapsed">Показать полностью</button>
+                {% endif %}
                 <div class="d-flex flex-wrap gap-2 mb-2">
                     {% if task.status.value == 'new' %}
                         <span class="badge bg-secondary">Новая</span>
@@ -117,11 +129,14 @@
             <div class="card-footer d-flex justify-content-between align-items-center">
                 <form method="post" action="/tasks/{{ task.id }}/complete" class="complete-form d-inline">
                     {% if task.status.value != 'completed' %}
-                        <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check2"></i> Выполнено</button>
+                        <button type="submit" class="btn btn-sm btn-outline-success" data-bs-toggle="tooltip" title="Отметить выполненной"><i class="bi bi-check2"></i></button>
                     {% endif %}
                 </form>
-                <form method="post" action="/tasks/{{ task.id }}/delete" class="delete-form d-inline">
-                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> Удалить</button>
+                <button class="btn btn-sm btn-outline-warning pin-button" data-task-id="{{ task.id }}" data-bs-toggle="tooltip" title="Закрепить/открепить">
+                    <i class="bi {{ 'bi-pin-fill' if task.pinned else 'bi-pin' }}"></i>
+                </button>
+                <form method="post" action="/tasks/{{ task.id }}/delete" class="delete-form d-inline" data-task-title="{{ task.title }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger" data-bs-toggle="tooltip" title="Удалить задачу"><i class="bi bi-trash"></i></button>
                 </form>
             </div>
         </div>
@@ -129,7 +144,11 @@
     {% endfor %}
 </div>
 {% else %}
-<div class="alert alert-info">Задач пока нет. Создайте первую!</div>
+<div class="empty-state">
+    <i class="bi bi-inbox"></i>
+    <h4>Задач пока нет</h4>
+    <p>Нажмите <strong>N</strong> или кнопку «Новая задача», чтобы создать первую.</p>
+</div>
 {% endif %}
 
 <!-- Плавающая кнопка -->
@@ -181,7 +200,7 @@
     </div>
 </div>
 
-<!-- Модальное окно быстрого просмотра задачи -->
+<!-- Модальное окно быстрого просмотра -->
 <div class="modal fade" id="quickViewModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -240,36 +259,73 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Быстрый просмотр задачи (клик по названию)
-    document.querySelectorAll('.task-item a[href^="/tasks/"]').forEach(link => {
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            const taskId = this.getAttribute('href').split('/')[2];
-            fetch(`/tasks/${taskId}/json`)
-                .then(res => res.json())
-                .then(data => {
-                    document.getElementById('quickViewTitle').textContent = data.title;
-                    document.getElementById('quickViewDescription').textContent = data.description || 'Нет описания';
-                    const meta = `
-                        <p><strong>Статус:</strong> ${data.status}</p>
-                        <p><strong>Приоритет:</strong> ${data.priority}</p>
-                        ${data.deadline ? `<p><strong>Срок:</strong> ${new Date(data.deadline).toLocaleString('ru-RU')}</p>` : ''}
-                    `;
-                    document.getElementById('quickViewMeta').innerHTML = meta;
-                    const commentsDiv = document.getElementById('quickViewComments');
-                    if (data.comments && data.comments.length > 0) {
-                        commentsDiv.innerHTML = data.comments.map(c => `
-                            <div class="comment">
-                                <span class="author">${c.author}</span>
-                                <span class="time">${new Date(c.created_at).toLocaleString('ru-RU')}</span>
-                                <div>${c.text}</div>
-                            </div>
-                        `).join('');
+    // Быстрый просмотр (Tippy)
+    document.querySelectorAll('.quick-view').forEach(link => {
+        const taskId = link.dataset.taskId;
+        tippy(link, {
+            content: 'Загрузка...',
+            allowHTML: true,
+            interactive: true,
+            onShow(instance) {
+                fetch(`/tasks/${taskId}/json`)
+                    .then(res => res.json())
+                    .then(data => {
+                        const content = `
+                            <strong>${data.title}</strong><br>
+                            Статус: ${data.status}<br>
+                            Приоритет: ${data.priority}<br>
+                            ${data.deadline ? 'Срок: ' + new Date(data.deadline).toLocaleString('ru-RU') : ''}
+                        `;
+                        instance.setContent(content);
+                    });
+            }
+        });
+    });
+
+    // Сворачивание описаний
+    document.querySelectorAll('.toggle-description').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const cardBody = this.closest('.card-body');
+            const desc = cardBody.querySelector('.task-description');
+            const state = this.dataset.state;
+            if (state === 'collapsed') {
+                desc.textContent = desc.dataset.fullText || desc.textContent;
+                desc.dataset.fullText = desc.textContent;
+                desc.style.display = 'block';
+                this.textContent = 'Свернуть';
+                this.dataset.state = 'expanded';
+            } else {
+                desc.dataset.fullText = desc.textContent;
+                desc.textContent = desc.textContent.substring(0, 100) + '...';
+                this.textContent = 'Показать полностью';
+                this.dataset.state = 'collapsed';
+            }
+        });
+    });
+
+    // Закрепление
+    document.querySelectorAll('.pin-button').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const taskId = this.dataset.taskId;
+            fetch(`/tasks/${taskId}/toggle-pin`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.pinned !== undefined) {
+                    const icon = this.querySelector('i');
+                    if (data.pinned) {
+                        icon.className = 'bi bi-pin-fill';
+                        showToast('Задача закреплена', 'success');
                     } else {
-                        commentsDiv.innerHTML = '<p class="text-muted">Нет комментариев</p>';
+                        icon.className = 'bi bi-pin';
+                        showToast('Задача откреплена', 'success');
                     }
-                    new bootstrap.Modal(document.getElementById('quickViewModal')).show();
-                });
+                    // Перезагрузка для обновления порядка
+                    setTimeout(() => location.reload(), 500);
+                }
+            });
         });
     });
 });

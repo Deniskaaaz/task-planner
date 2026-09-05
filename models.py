@@ -42,6 +42,7 @@ class Task(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     scheduled_date = Column(Date, nullable=True)
+    pinned = Column(Boolean, default=False)  # <-- новое поле
     created_by_id = Column(Integer, ForeignKey("users.id"))
 
     created_by = relationship("User", foreign_keys=[created_by_id])

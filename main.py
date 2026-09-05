@@ -1,9 +1,10 @@
 ﻿import os
 import json
+import csv
+import io
 from fastapi import FastAPI, Request, Response, Depends, HTTPException, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.exceptions import HTTPException as StarletteHTTPException
-from fastapi.encoders import jsonable_encoder
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -23,7 +24,6 @@ def render_template(name: str, **kwargs) -> str:
     return template.render(**kwargs)
 
 def is_admin_telegram_id(telegram_id: str) -> bool:
-    """Проверяет, входит ли telegram_id в список администраторов из окружения."""
     if not telegram_id:
         return False
     admin_ids_str = os.environ.get("ADMIN_TELEGRAM_IDS", "")
@@ -35,7 +35,7 @@ def is_admin_telegram_id(telegram_id: str) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    start_bot_background()   # Запускаем Telegram-бота в фоне
+    start_bot_background()
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -46,7 +46,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return RedirectResponse("/login", status_code=302)
     return HTMLResponse(content=str(exc.detail), status_code=exc.status_code)
 
-# ---------- Главная страница с фильтрацией и сортировкой ----------
+# ---------- Главная страница ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(
     request: Request,
@@ -59,43 +59,40 @@ async def index(
     async with AsyncSessionLocal() as session:
         query = select(Task).options(selectinload(Task.assignees))
 
-        # Фильтр по статусу
         if status:
             try:
                 status_enum = TaskStatus(status)
                 query = query.where(Task.status == status_enum)
             except ValueError:
-                pass  # игнорируем неверный статус
+                pass
 
-        # Фильтр по приоритету
         if priority and priority in ["low", "normal", "high"]:
             query = query.where(Task.priority == priority)
 
-        # Поиск по названию и описанию
         if search:
             query = query.where(
                 (Task.title.ilike(f"%{search}%")) | (Task.description.ilike(f"%{search}%"))
             )
 
-        # Сортировка
         if sort == "deadline":
             query = query.order_by(Task.deadline.asc().nulls_last())
         elif sort == "priority":
-            # high > normal > low
             priority_order = {"high": 0, "normal": 1, "low": 2}
-            # Сортировка в Python после выборки (проще)
             tasks_raw = (await session.execute(query)).scalars().all()
             tasks = sorted(tasks_raw, key=lambda t: priority_order.get(t.priority, 1))
-            # Возвращаем рано, чтобы не сортировать повторно
+            # выводим закреплённые первыми
+            tasks = sorted(tasks, key=lambda t: not t.pinned)
             html = render_template("index.html", user=user, tasks=tasks, TaskStatus=TaskStatus,
                                    current_status=status, current_priority=priority, current_sort=sort, current_search=search)
             return HTMLResponse(content=html)
         elif sort == "created_at_asc":
             query = query.order_by(Task.created_at.asc())
-        else:  # created_at_desc по умолчанию
+        else:  # created_at_desc
             query = query.order_by(Task.created_at.desc())
 
         tasks = (await session.execute(query)).scalars().all()
+        # закреплённые всегда первыми
+        tasks = sorted(tasks, key=lambda t: not t.pinned)
 
     html = render_template("index.html", user=user, tasks=tasks, TaskStatus=TaskStatus,
                            current_status=status, current_priority=priority, current_sort=sort, current_search=search)
@@ -141,7 +138,6 @@ async def register(
             return HTMLResponse(render_template("register.html", error="Пользователь уже существует", user=None), status_code=400)
 
         hashed = hash_password(password)
-        # Определяем роль на основе telegram_id
         role = UserRole.admin if is_admin_telegram_id(telegram_id) else UserRole.executor
 
         new_user = User(
@@ -226,7 +222,8 @@ async def create_task(
             scheduled_date=scheduled_date_dt,
             priority=priority,
             created_by_id=user.id,
-            status=TaskStatus.new
+            status=TaskStatus.new,
+            pinned=False
         )
         session.add(task)
         await session.commit()
@@ -236,7 +233,6 @@ async def create_task(
         session.add(assignee)
         await session.commit()
 
-        # Уведомление создателю задачи
         creator = await session.get(User, user.id)
         if creator and creator.telegram_id:
             await send_telegram_notification(creator.telegram_id, f"Создана задача: {title}")
@@ -263,7 +259,6 @@ async def task_detail(task_id: int, request: Request, user=Depends(get_current_u
     html = render_template("task_detail.html", task=task, comments=comments, user=user)
     return HTMLResponse(content=html)
 
-# Быстрый просмотр задачи (JSON для модального окна)
 @app.get("/tasks/{task_id}/json")
 async def task_json(task_id: int, user=Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
@@ -285,6 +280,7 @@ async def task_json(task_id: int, user=Depends(get_current_user)):
             "description": task.description,
             "status": task.status.value,
             "priority": task.priority,
+            "pinned": task.pinned,
             "deadline": task.deadline.isoformat() if task.deadline else None,
             "scheduled_date": task.scheduled_date.isoformat() if task.scheduled_date else None,
             "created_at": task.created_at.isoformat() if task.created_at else None,
@@ -300,7 +296,6 @@ async def task_json(task_id: int, user=Depends(get_current_user)):
         }
         return JSONResponse(content=task_data)
 
-# Эндпоинт для канбан-доски: обновление статуса задачи
 @app.post("/tasks/{task_id}/update-status")
 async def update_task_status(
     task_id: int,
@@ -320,15 +315,15 @@ async def update_task_status(
         await session.commit()
         return JSONResponse({"success": True})
 
-        task.status = status_enum
+@app.post("/tasks/{task_id}/toggle-pin")
+async def toggle_pin(task_id: int, user=Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        task = await session.get(Task, task_id)
+        if not task:
+            return JSONResponse({"error": "Task not found"}, status_code=404)
+        task.pinned = not task.pinned
         await session.commit()
-        # Уведомляем создателя (можно расширить)
-        if task.created_by and task.created_by.telegram_id:
-            await send_telegram_notification(
-                task.created_by.telegram_id,
-                f"Статус задачи «{task.title}» изменён на {status_enum.value}"
-            )
-        return JSONResponse({"success": True})
+        return JSONResponse({"pinned": task.pinned})
 
 @app.post("/tasks/{task_id}/comments")
 async def add_comment(
@@ -346,6 +341,17 @@ async def add_comment(
         if not task:
             raise StarletteHTTPException(status_code=404, detail="Задача не найдена")
 
+        # Обработка упоминаний
+        import re
+        mentions = re.findall(r'@(\w+)', text)
+        mentioned_users = []
+        if mentions:
+            for username in mentions:
+                user_result = await session.execute(select(User).where(User.username == username))
+                mentioned = user_result.scalar_one_or_none()
+                if mentioned and mentioned.id != user.id:
+                    mentioned_users.append(mentioned)
+
         comment = Comment(
             task_id=task_id,
             user_id=user.id,
@@ -354,13 +360,21 @@ async def add_comment(
         session.add(comment)
         await session.commit()
 
-        # Уведомляем всех участников задачи, кроме автора комментария
+        # Уведомления участникам (как раньше)
         recipients = [a for a in task.assignees if a.id != user.id]
         for recipient in recipients:
             if recipient.telegram_id:
                 await send_telegram_notification(
                     recipient.telegram_id,
                     f"Новый комментарий в задаче «{task.title}»"
+                )
+
+        # Уведомления упомянутым
+        for mentioned in mentioned_users:
+            if mentioned.telegram_id:
+                await send_telegram_notification(
+                    mentioned.telegram_id,
+                    f"Вас упомянули в комментарии к задаче «{task.title}»"
                 )
 
     return RedirectResponse(f"/tasks/{task_id}", status_code=302)
@@ -444,6 +458,67 @@ async def move_task(task_id: int, scheduled_date: str = Form(...), user=Depends(
 
     return JSONResponse({"success": True})
 
+# ---------- Канбан-доска ----------
+@app.get("/board", response_class=HTMLResponse)
+async def board_page(request: Request, user=Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Task)
+            .options(selectinload(Task.assignees))
+            .order_by(Task.created_at.desc())
+        )
+        tasks = result.scalars().all()
+
+    columns = {
+        "new": [t for t in tasks if t.status == TaskStatus.new],
+        "in_progress": [t for t in tasks if t.status == TaskStatus.in_progress],
+        "on_review": [t for t in tasks if t.status == TaskStatus.on_review],
+        "completed": [t for t in tasks if t.status == TaskStatus.completed],
+    }
+
+    html = render_template("board.html", user=user, columns=columns, TaskStatus=TaskStatus)
+    return HTMLResponse(content=html)
+
+# ---------- Экспорт CSV ----------
+@app.get("/export/csv")
+async def export_csv(user=Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Task).options(selectinload(Task.assignees)).order_by(Task.created_at.desc())
+        )
+        tasks = result.scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow(["ID", "Название", "Описание", "Статус", "Приоритет", "Дедлайн", "Плановая дата", "Исполнители"])
+    for t in tasks:
+        assignees = ", ".join([a.username for a in t.assignees])
+        writer.writerow([
+            t.id,
+            t.title,
+            t.description,
+            t.status.value,
+            t.priority,
+            t.deadline.strftime("%Y-%m-%d %H:%M") if t.deadline else "",
+            t.scheduled_date.strftime("%Y-%m-%d") if t.scheduled_date else "",
+            assignees
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=tasks.csv"}
+    )
+
+# ---------- Список пользователей (для упоминаний) ----------
+@app.get("/users/list")
+async def users_list(user=Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(User).order_by(User.username))
+        users = result.scalars().all()
+        return JSONResponse([{"id": u.id, "username": u.username} for u in users])
+
 # ---------- Статистика ----------
 @app.get("/stats", response_class=HTMLResponse)
 async def stats_page(request: Request, user=Depends(get_current_user)):
@@ -480,27 +555,6 @@ async def stats_page(request: Request, user=Depends(get_current_user)):
         upcoming=upcoming,
         now=now
     )
-    return HTMLResponse(content=html)
-
-@app.get("/board", response_class=HTMLResponse)
-async def board_page(request: Request, user=Depends(get_current_user)):
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Task)
-            .options(selectinload(Task.assignees))
-            .order_by(Task.created_at.desc())
-        )
-        tasks = result.scalars().all()
-
-    # Группируем по статусам
-    columns = {
-        "new": [t for t in tasks if t.status == TaskStatus.new],
-        "in_progress": [t for t in tasks if t.status == TaskStatus.in_progress],
-        "on_review": [t for t in tasks if t.status == TaskStatus.on_review],
-        "completed": [t for t in tasks if t.status == TaskStatus.completed],
-    }
-
-    html = render_template("board.html", user=user, columns=columns, TaskStatus=TaskStatus)
     return HTMLResponse(content=html)
 
 # ---------- Админ-панель ----------
