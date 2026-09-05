@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from database import init_db, AsyncSessionLocal
 from models import User, Task, TaskStatus, TaskAssignee, Comment
-from auth import get_current_user, set_user_cookie, COOKIE_NAME
+from auth import get_current_user, set_user_cookie, COOKIE_NAME, hash_password, verify_password
 from jinja2 import Environment, FileSystemLoader
 from datetime import datetime, date, timedelta
 import json
@@ -32,6 +32,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return RedirectResponse("/login", status_code=302)
     return HTMLResponse(content=str(exc.detail), status_code=exc.status_code)
 
+# ---------- Главная страница ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, user=Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
@@ -44,29 +45,59 @@ async def index(request: Request, user=Depends(get_current_user)):
     html = render_template("index.html", user=user, tasks=tasks, TaskStatus=TaskStatus)
     return HTMLResponse(content=html)
 
+# ---------- Аутентификация ----------
 @app.get("/login", response_class=HTMLResponse)
 async def login_page():
     html = render_template("login.html", user=None)
     return HTMLResponse(content=html)
 
 @app.post("/login")
-async def login(username: str = Form(...)):
+async def login(
+    username: str = Form(...),
+    password: str = Form(...)
+):
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
-        if not user:
-            user = User(
-                telegram_id=f"temp_{username}",
-                username=username,
-                full_name=username,
-                role="executor"
-            )
-            session.add(user)
-            await session.commit()
-            await session.refresh(user)
+        if not user or not verify_password(password, user.password_hash):
+            return HTMLResponse(render_template("login.html", error="Неверный логин или пароль", user=None), status_code=400)
         user_id = user.id
     response = RedirectResponse("/", status_code=302)
     set_user_cookie(response, user_id)
+    return response
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page():
+    html = render_template("register.html", user=None)
+    return HTMLResponse(content=html)
+
+@app.post("/register")
+async def register(
+    username: str = Form(...),
+    password: str = Form(...),
+    full_name: str = Form("")
+):
+    async with AsyncSessionLocal() as session:
+        # Проверяем, существует ли пользователь
+        result = await session.execute(select(User).where(User.username == username))
+        existing = result.scalar_one_or_none()
+        if existing:
+            return HTMLResponse(render_template("register.html", error="Пользователь уже существует", user=None), status_code=400)
+
+        hashed = hash_password(password)
+        new_user = User(
+            username=username,
+            password_hash=hashed,
+            full_name=full_name or username,
+            telegram_id=None,
+            role="executor"
+        )
+        session.add(new_user)
+        await session.commit()
+        await session.refresh(new_user)
+
+    response = RedirectResponse("/", status_code=302)
+    set_user_cookie(response, new_user.id)
     return response
 
 @app.get("/logout")
@@ -75,12 +106,14 @@ async def logout():
     response.delete_cookie(COOKIE_NAME)
     return response
 
+# ---------- Задачи ----------
 @app.post("/tasks/create")
 async def create_task(
     title: str = Form(...),
     description: str = Form(""),
     deadline: str = Form(""),
     scheduled_date: str = Form(""),
+    priority: str = Form("normal"),
     user=Depends(get_current_user)
 ):
     async with AsyncSessionLocal() as session:
@@ -103,6 +136,7 @@ async def create_task(
             description=description,
             deadline=deadline_dt,
             scheduled_date=scheduled_date_dt,
+            priority=priority,
             created_by_id=user["id"],
             status=TaskStatus.new
         )
@@ -178,6 +212,7 @@ async def delete_task(task_id: int, user=Depends(get_current_user)):
             await session.commit()
     return RedirectResponse("/", status_code=302)
 
+# ---------- Календарь ----------
 @app.get("/calendar", response_class=HTMLResponse)
 async def calendar_page(request: Request, user=Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
@@ -223,3 +258,41 @@ async def move_task(task_id: int, scheduled_date: str = Form(...), user=Depends(
         await session.commit()
 
     return JSONResponse({"success": True})
+
+# ---------- Статистика ----------
+@app.get("/stats", response_class=HTMLResponse)
+async def stats_page(request: Request, user=Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Task).options(selectinload(Task.assignees)))
+        tasks = result.scalars().all()
+
+    total = len(tasks)
+    completed = sum(1 for t in tasks if t.status == TaskStatus.completed)
+    in_progress = sum(1 for t in tasks if t.status == TaskStatus.in_progress)
+    new_tasks = sum(1 for t in tasks if t.status == TaskStatus.new)
+    on_review = sum(1 for t in tasks if t.status == TaskStatus.on_review)
+
+    now = datetime.now()
+    overdue = []
+    for t in tasks:
+        if t.deadline and t.deadline < now and t.status != TaskStatus.completed:
+            overdue.append(t)
+
+    upcoming = sorted(
+        [t for t in tasks if t.deadline and t.deadline >= now and t.status != TaskStatus.completed],
+        key=lambda x: x.deadline
+    )[:5]
+
+    html = render_template(
+        "stats.html",
+        user=user,
+        total=total,
+        completed=completed,
+        in_progress=in_progress,
+        new_tasks=new_tasks,
+        on_review=on_review,
+        overdue=overdue,
+        upcoming=upcoming,
+        now=now
+    )
+    return HTMLResponse(content=html)

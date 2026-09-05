@@ -19,9 +19,10 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_id = Column(String, unique=True, nullable=False)
-    username = Column(String, nullable=True)
-    full_name = Column(String, nullable=False)
+    username = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    telegram_id = Column(String, nullable=True)  # теперь необязательный
+    full_name = Column(String, nullable=True)   # можно запросить при регистрации
     role = Column(Enum(UserRole), default=UserRole.executor)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -34,11 +35,11 @@ class Task(Base):
     title = Column(String, nullable=False)
     description = Column(Text, default="")
     status = Column(Enum(TaskStatus), default=TaskStatus.new)
-    priority = Column(String, default="normal")  # low, normal, high
+    priority = Column(String, default="normal")
     deadline = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-    scheduled_date = Column(Date, nullable=True)   # <-- НОВОЕ ПОЛЕ
+    scheduled_date = Column(Date, nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id"))
 
     created_by = relationship("User", foreign_keys=[created_by_id])

@@ -50,6 +50,9 @@
                             <a class="nav-link" href="/calendar"><i class="bi bi-calendar-week"></i> Календарь</a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link" href="/stats"><i class="bi bi-bar-chart-line"></i> Статистика</a>
+                        </li>
+                        <li class="nav-item">
                             <span class="nav-link"><i class="bi bi-person-circle"></i> {{ user.id }}</span>
                         </li>
                         <li class="nav-item">
@@ -58,6 +61,9 @@
                     {% else %}
                         <li class="nav-item">
                             <a class="nav-link" href="/login"><i class="bi bi-box-arrow-in-right"></i> Войти</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/register"><i class="bi bi-person-plus"></i> Регистрация</a>
                         </li>
                     {% endif %}
                     <li class="nav-item ms-2">
