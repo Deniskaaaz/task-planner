@@ -3,15 +3,45 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>📋 Мои задачи</h1>
+    <button class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#newTaskModal">
+        <i class="bi bi-plus-lg"></i> Новая задача
+    </button>
 </div>
 
-<!-- Живой поиск -->
+<!-- Поиск и фильтры -->
 <div class="search-box">
     <i class="bi bi-search"></i>
-    <input type="text" id="liveSearch" class="form-control" placeholder="Поиск по задачам...">
+    <input type="text" id="liveSearch" class="form-control" placeholder="Поиск по задачам..." value="{{ current_search }}">
+</div>
+<div class="filters mb-3">
+    <form method="get" action="/" class="d-flex gap-2 flex-wrap">
+        <select name="status" class="form-select" style="width:auto;" onchange="this.form.submit()">
+            <option value="">Все статусы</option>
+            <option value="new" {% if current_status == 'new' %}selected{% endif %}>Новые</option>
+            <option value="in_progress" {% if current_status == 'in_progress' %}selected{% endif %}>В работе</option>
+            <option value="on_review" {% if current_status == 'on_review' %}selected{% endif %}>На проверке</option>
+            <option value="completed" {% if current_status == 'completed' %}selected{% endif %}>Завершённые</option>
+        </select>
+        <select name="priority" class="form-select" style="width:auto;" onchange="this.form.submit()">
+            <option value="">Все приоритеты</option>
+            <option value="low" {% if current_priority == 'low' %}selected{% endif %}>Низкий</option>
+            <option value="normal" {% if current_priority == 'normal' %}selected{% endif %}>Обычный</option>
+            <option value="high" {% if current_priority == 'high' %}selected{% endif %}>Высокий</option>
+        </select>
+        <select name="sort" class="form-select" style="width:auto;" onchange="this.form.submit()">
+            <option value="created_at_desc" {% if current_sort == 'created_at_desc' %}selected{% endif %}>Сначала новые</option>
+            <option value="created_at_asc" {% if current_sort == 'created_at_asc' %}selected{% endif %}>Сначала старые</option>
+            <option value="deadline" {% if current_sort == 'deadline' %}selected{% endif %}>Ближайший дедлайн</option>
+            <option value="priority" {% if current_sort == 'priority' %}selected{% endif %}>Высокий приоритет</option>
+        </select>
+        {% if current_search %}
+        <input type="hidden" name="search" value="{{ current_search }}">
+        {% endif %}
+        <button type="submit" class="btn btn-outline-secondary">Применить</button>
+    </form>
 </div>
 
-<!-- Прогресс-бар выполнения -->
+<!-- Прогресс-бар -->
 {% set total_tasks = tasks|length %}
 {% set completed_tasks = tasks|selectattr('status.value', 'equalto', 'completed')|list|length %}
 {% set percent = (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0 %}
@@ -30,70 +60,76 @@
 
 <!-- Список задач -->
 {% if tasks %}
-    <div class="row" id="tasksContainer">
-        {% for task in tasks %}
-        <div class="col-md-6 col-lg-4 mb-4 task-item" data-title="{{ task.title|lower }}" data-description="{{ task.description|lower }}">
-            <div class="card task-card h-100 priority-{{ task.priority }}" data-aos="fade-up" data-aos-delay="{{ loop.index0 * 50 }}">
-                <div class="card-body">
-                    <h5 class="card-title">
-                        <a href="/tasks/{{ task.id }}" class="text-decoration-none">{{ task.title }}</a>
-                    </h5>
-                    <p class="card-text">{{ task.description or 'Нет описания' }}</p>
-                    <div class="d-flex flex-wrap gap-2 mb-2">
-                        {% if task.status.value == 'new' %}
-                            <span class="badge bg-secondary">Новая</span>
-                        {% elif task.status.value == 'in_progress' %}
-                            <span class="badge bg-primary">В работе</span>
-                        {% elif task.status.value == 'on_review' %}
-                            <span class="badge bg-warning text-dark">На проверке</span>
-                        {% elif task.status.value == 'completed' %}
-                            <span class="badge bg-success">Завершена</span>
-                        {% endif %}
-                        {% if task.priority == 'high' %}
-                            <span class="badge bg-danger">Высокий приоритет</span>
-                        {% elif task.priority == 'low' %}
-                            <span class="badge bg-info">Низкий приоритет</span>
-                        {% endif %}
-                    </div>
-                    <div class="d-flex align-items-center mt-2">
-                        <div class="me-2">
-                            {% for assignee in task.assignees %}
-                                {% if assignee.telegram_id %}
-                                <span class="avatar-circle" data-bs-toggle="tooltip" title="{{ assignee.full_name or assignee.username }}">
-                                    <img src="https://t.me/i/userpic/{{ assignee.telegram_id }}" alt="">
-                                </span>
-                                {% else %}
-                                <span class="avatar-circle" data-bs-toggle="tooltip" title="{{ assignee.full_name or assignee.username }}">
-                                    {{ (assignee.full_name or assignee.username)[:1]|upper }}
-                                </span>
-                                {% endif %}
-                            {% endfor %}
-                        </div>
-                        <small class="text-muted">{{ task.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
-                    </div>
-                    {% if task.deadline %}
-                        <p class="text-muted small mb-1 mt-1">Срок: {{ task.deadline.strftime('%d.%m.%Y %H:%M') }}</p>
+<div class="row" id="tasksContainer">
+    {% for task in tasks %}
+    <div class="col-md-6 col-lg-4 mb-4 task-item" 
+         data-title="{{ task.title|lower }}" 
+         data-description="{{ task.description|lower }}" 
+         data-status="{{ task.status.value }}" 
+         data-priority="{{ task.priority }}"
+         data-created="{{ task.created_at.timestamp() }}"
+         {% if task.deadline %}data-deadline="{{ task.deadline.timestamp() }}"{% endif %}>
+        <div class="card task-card h-100 priority-{{ task.priority }}" data-aos="fade-up" data-aos-delay="{{ loop.index0 * 50 }}" data-task-id="{{ task.id }}">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <a href="/tasks/{{ task.id }}" class="text-decoration-none">{{ task.title }}</a>
+                </h5>
+                <p class="card-text">{{ task.description or 'Нет описания' }}</p>
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    {% if task.status.value == 'new' %}
+                        <span class="badge bg-secondary">Новая</span>
+                    {% elif task.status.value == 'in_progress' %}
+                        <span class="badge bg-primary">В работе</span>
+                    {% elif task.status.value == 'on_review' %}
+                        <span class="badge bg-warning text-dark">На проверке</span>
+                    {% elif task.status.value == 'completed' %}
+                        <span class="badge bg-success">Завершена</span>
                     {% endif %}
-                    {% if task.scheduled_date %}
-                        <p class="text-muted small mb-1">План: {{ task.scheduled_date.strftime('%d.%m.%Y') }}</p>
+                    {% if task.priority == 'high' %}
+                        <span class="badge bg-danger">Высокий приоритет</span>
+                    {% elif task.priority == 'low' %}
+                        <span class="badge bg-info">Низкий приоритет</span>
                     {% endif %}
                 </div>
-                <div class="card-footer d-flex justify-content-between align-items-center">
-                    <form method="post" action="/tasks/{{ task.id }}/complete" class="complete-form d-inline">
-                        {% if task.status.value != 'completed' %}
-                            <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check2"></i> Выполнено</button>
-                        {% endif %}
-                    </form>
-                    <form method="post" action="/tasks/{{ task.id }}/delete" class="delete-form d-inline">
-                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> Удалить</button>
-                    </form>
+                <div class="d-flex align-items-center mt-2">
+                    <div class="me-2">
+                        {% for assignee in task.assignees %}
+                            {% if assignee.telegram_id %}
+                            <span class="avatar-circle" data-bs-toggle="tooltip" title="{{ assignee.full_name or assignee.username }}">
+                                <img src="https://t.me/i/userpic/{{ assignee.telegram_id }}" alt="">
+                            </span>
+                            {% else %}
+                            <span class="avatar-circle" data-bs-toggle="tooltip" title="{{ assignee.full_name or assignee.username }}">
+                                {{ (assignee.full_name or assignee.username)[:1]|upper }}
+                            </span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    <small class="text-muted">{{ task.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
                 </div>
+                {% if task.deadline %}
+                    <p class="text-muted small mb-1 mt-1">Срок: {{ task.deadline.strftime('%d.%m.%Y %H:%M') }}</p>
+                {% endif %}
+                {% if task.scheduled_date %}
+                    <p class="text-muted small mb-1">План: {{ task.scheduled_date.strftime('%d.%m.%Y') }}</p>
+                {% endif %}
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <form method="post" action="/tasks/{{ task.id }}/complete" class="complete-form d-inline">
+                    {% if task.status.value != 'completed' %}
+                        <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check2"></i> Выполнено</button>
+                    {% endif %}
+                </form>
+                <form method="post" action="/tasks/{{ task.id }}/delete" class="delete-form d-inline">
+                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> Удалить</button>
+                </form>
             </div>
         </div>
-        {% endfor %}
     </div>
+    {% endfor %}
+</div>
 {% else %}
-    <div class="alert alert-info">Задач пока нет. Создайте первую!</div>
+<div class="alert alert-info">Задач пока нет. Создайте первую!</div>
 {% endif %}
 
 <!-- Плавающая кнопка -->
@@ -145,6 +181,25 @@
     </div>
 </div>
 
+<!-- Модальное окно быстрого просмотра задачи -->
+<div class="modal fade" id="quickViewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="quickViewTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="quickViewDescription"></p>
+                <div id="quickViewMeta"></div>
+                <hr>
+                <h6>Комментарии</h6>
+                <div id="quickViewComments"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Живой поиск
@@ -167,19 +222,54 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
             fireConfetti();
+            playSound('success');
             showToast('Задача выполнена!', 'success');
             this.submit();
         });
     });
 
-    // Тост при удалении
+    // Удаление
     document.querySelectorAll('.delete-form').forEach(form => {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
             if (confirm('Удалить задачу?')) {
+                playSound('error');
                 showToast('Задача удалена', 'error');
                 this.submit();
             }
+        });
+    });
+
+    // Быстрый просмотр задачи (клик по названию)
+    document.querySelectorAll('.task-item a[href^="/tasks/"]').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const taskId = this.getAttribute('href').split('/')[2];
+            fetch(`/tasks/${taskId}/json`)
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('quickViewTitle').textContent = data.title;
+                    document.getElementById('quickViewDescription').textContent = data.description || 'Нет описания';
+                    const meta = `
+                        <p><strong>Статус:</strong> ${data.status}</p>
+                        <p><strong>Приоритет:</strong> ${data.priority}</p>
+                        ${data.deadline ? `<p><strong>Срок:</strong> ${new Date(data.deadline).toLocaleString('ru-RU')}</p>` : ''}
+                    `;
+                    document.getElementById('quickViewMeta').innerHTML = meta;
+                    const commentsDiv = document.getElementById('quickViewComments');
+                    if (data.comments && data.comments.length > 0) {
+                        commentsDiv.innerHTML = data.comments.map(c => `
+                            <div class="comment">
+                                <span class="author">${c.author}</span>
+                                <span class="time">${new Date(c.created_at).toLocaleString('ru-RU')}</span>
+                                <div>${c.text}</div>
+                            </div>
+                        `).join('');
+                    } else {
+                        commentsDiv.innerHTML = '<p class="text-muted">Нет комментариев</p>';
+                    }
+                    new bootstrap.Modal(document.getElementById('quickViewModal')).show();
+                });
         });
     });
 });

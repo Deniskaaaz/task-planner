@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Канбан-доска{% endblock %}
+{% block content %}
+<h1 class="mb-4"><i class="bi bi-kanban"></i> Канбан-доска</h1>
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="column" data-status="new">
+            <h4 class="text-center">Новые</h4>
+            <div class="task-list" style="min-height: 300px;">
+                {% for task in columns['new'] %}
+                <div class="card task-card mb-2" draggable="true" data-task-id="{{ task.id }}">
+                    <div class="card-body py-2">
+                        <strong>{{ task.title }}</strong>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="column" data-status="in_progress">
+            <h4 class="text-center">В работе</h4>
+            <div class="task-list" style="min-height: 300px;">
+                {% for task in columns['in_progress'] %}
+                <div class="card task-card mb-2" draggable="true" data-task-id="{{ task.id }}">
+                    <div class="card-body py-2">
+                        <strong>{{ task.title }}</strong>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="column" data-status="on_review">
+            <h4 class="text-center">На проверке</h4>
+            <div class="task-list" style="min-height: 300px;">
+                {% for task in columns['on_review'] %}
+                <div class="card task-card mb-2" draggable="true" data-task-id="{{ task.id }}">
+                    <div class="card-body py-2">
+                        <strong>{{ task.title }}</strong>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="column" data-status="completed">
+            <h4 class="text-center">Завершены</h4>
+            <div class="task-list" style="min-height: 300px;">
+                {% for task in columns['completed'] %}
+                <div class="card task-card mb-2" draggable="true" data-task-id="{{ task.id }}">
+                    <div class="card-body py-2">
+                        <strong>{{ task.title }}</strong>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const cards = document.querySelectorAll('.task-card[draggable="true"]');
+    const lists = document.querySelectorAll('.task-list');
+
+    cards.forEach(card => {
+        card.addEventListener('dragstart', function(e) {
+            e.dataTransfer.setData('text/plain', this.dataset.taskId);
+            this.classList.add('dragging');
+        });
+        card.addEventListener('dragend', function() {
+            this.classList.remove('dragging');
+        });
+    });
+
+    lists.forEach(list => {
+        list.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            this.style.backgroundColor = 'rgba(102,126,234,0.2)';
+        });
+        list.addEventListener('dragleave', function() {
+            this.style.backgroundColor = '';
+        });
+        list.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.style.backgroundColor = '';
+            const taskId = e.dataTransfer.getData('text/plain');
+            const newStatus = this.closest('.column').dataset.status;
+            fetch(`/tasks/${taskId}/update-status`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `new_status=${newStatus}`
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    const card = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
+                    if (card) this.appendChild(card);
+                    showToast('Статус обновлён', 'success');
+                } else {
+                    showToast('Ошибка', 'error');
+                }
+            });
+        });
+    });
+});
+</script>
+{% endblock %}

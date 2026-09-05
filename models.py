@@ -1,4 +1,4 @@
-﻿from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, Enum
+﻿from sqlalchemy import Column, Integer, String, Text, DateTime, Date, Boolean, ForeignKey, Enum
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from database import Base
@@ -21,9 +21,11 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
-    telegram_id = Column(String, nullable=True)  # теперь необязательный
-    full_name = Column(String, nullable=True)   # можно запросить при регистрации
+    telegram_id = Column(String, nullable=True)
+    full_name = Column(String, nullable=True)
     role = Column(Enum(UserRole), default=UserRole.executor)
+    theme_preference = Column(String, default="auto")   # auto, light, dark
+    sound_enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     tasks = relationship("Task", secondary="task_assignees", back_populates="assignees")
@@ -35,7 +37,7 @@ class Task(Base):
     title = Column(String, nullable=False)
     description = Column(Text, default="")
     status = Column(Enum(TaskStatus), default=TaskStatus.new)
-    priority = Column(String, default="normal")
+    priority = Column(String, default="normal")  # low, normal, high
     deadline = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

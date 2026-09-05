@@ -3,6 +3,7 @@ import json
 from fastapi import FastAPI, Request, Response, Depends, HTTPException, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.exceptions import HTTPException as StarletteHTTPException
+from fastapi.encoders import jsonable_encoder
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -45,17 +46,59 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return RedirectResponse("/login", status_code=302)
     return HTMLResponse(content=str(exc.detail), status_code=exc.status_code)
 
-# ---------- Главная страница ----------
+# ---------- Главная страница с фильтрацией и сортировкой ----------
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request, user=Depends(get_current_user)):
+async def index(
+    request: Request,
+    status: str = "",
+    priority: str = "",
+    sort: str = "created_at_desc",
+    search: str = "",
+    user: User = Depends(get_current_user)
+):
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Task)
-            .options(selectinload(Task.assignees))
-            .order_by(Task.created_at.desc())
-        )
-        tasks = result.scalars().all()
-    html = render_template("index.html", user=user, tasks=tasks, TaskStatus=TaskStatus)
+        query = select(Task).options(selectinload(Task.assignees))
+
+        # Фильтр по статусу
+        if status:
+            try:
+                status_enum = TaskStatus(status)
+                query = query.where(Task.status == status_enum)
+            except ValueError:
+                pass  # игнорируем неверный статус
+
+        # Фильтр по приоритету
+        if priority and priority in ["low", "normal", "high"]:
+            query = query.where(Task.priority == priority)
+
+        # Поиск по названию и описанию
+        if search:
+            query = query.where(
+                (Task.title.ilike(f"%{search}%")) | (Task.description.ilike(f"%{search}%"))
+            )
+
+        # Сортировка
+        if sort == "deadline":
+            query = query.order_by(Task.deadline.asc().nulls_last())
+        elif sort == "priority":
+            # high > normal > low
+            priority_order = {"high": 0, "normal": 1, "low": 2}
+            # Сортировка в Python после выборки (проще)
+            tasks_raw = (await session.execute(query)).scalars().all()
+            tasks = sorted(tasks_raw, key=lambda t: priority_order.get(t.priority, 1))
+            # Возвращаем рано, чтобы не сортировать повторно
+            html = render_template("index.html", user=user, tasks=tasks, TaskStatus=TaskStatus,
+                                   current_status=status, current_priority=priority, current_sort=sort, current_search=search)
+            return HTMLResponse(content=html)
+        elif sort == "created_at_asc":
+            query = query.order_by(Task.created_at.asc())
+        else:  # created_at_desc по умолчанию
+            query = query.order_by(Task.created_at.desc())
+
+        tasks = (await session.execute(query)).scalars().all()
+
+    html = render_template("index.html", user=user, tasks=tasks, TaskStatus=TaskStatus,
+                           current_status=status, current_priority=priority, current_sort=sort, current_search=search)
     return HTMLResponse(content=html)
 
 # ---------- Аутентификация ----------
@@ -142,7 +185,6 @@ async def update_profile(
         db_user = result.scalar_one_or_none()
         if db_user:
             db_user.telegram_id = telegram_id.strip() or None
-            # Обновляем роль при необходимости
             if is_admin_telegram_id(db_user.telegram_id):
                 db_user.role = UserRole.admin
             await session.commit()
@@ -220,6 +262,71 @@ async def task_detail(task_id: int, request: Request, user=Depends(get_current_u
 
     html = render_template("task_detail.html", task=task, comments=comments, user=user)
     return HTMLResponse(content=html)
+
+# Быстрый просмотр задачи (JSON для модального окна)
+@app.get("/tasks/{task_id}/json")
+async def task_json(task_id: int, user=Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Task)
+            .options(
+                selectinload(Task.assignees),
+                selectinload(Task.comments).selectinload(Comment.user)
+            )
+            .where(Task.id == task_id)
+        )
+        task = result.scalar_one_or_none()
+        if not task:
+            raise StarletteHTTPException(status_code=404, detail="Задача не найдена")
+
+        task_data = {
+            "id": task.id,
+            "title": task.title,
+            "description": task.description,
+            "status": task.status.value,
+            "priority": task.priority,
+            "deadline": task.deadline.isoformat() if task.deadline else None,
+            "scheduled_date": task.scheduled_date.isoformat() if task.scheduled_date else None,
+            "created_at": task.created_at.isoformat() if task.created_at else None,
+            "comments": [
+                {
+                    "id": c.id,
+                    "text": c.text,
+                    "author": c.user.username if c.user else "Unknown",
+                    "created_at": c.created_at.isoformat() if c.created_at else None
+                }
+                for c in task.comments
+            ]
+        }
+        return JSONResponse(content=task_data)
+
+# Эндпоинт для канбан-доски: обновление статуса задачи
+@app.post("/tasks/{task_id}/update-status")
+async def update_task_status(
+    task_id: int,
+    new_status: str = Form(...),
+    user=Depends(get_current_user)
+):
+    try:
+        status_enum = TaskStatus(new_status)
+    except ValueError:
+        return JSONResponse({"error": "Invalid status"}, status_code=400)
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Task).where(Task.id == task_id))
+        task = result.scalar_one_or_none()
+        if not task:
+            return JSONResponse({"error": "Task not found"}, status_code=404)
+
+        task.status = status_enum
+        await session.commit()
+        # Уведомляем создателя (можно расширить)
+        if task.created_by and task.created_by.telegram_id:
+            await send_telegram_notification(
+                task.created_by.telegram_id,
+                f"Статус задачи «{task.title}» изменён на {status_enum.value}"
+            )
+        return JSONResponse({"success": True})
 
 @app.post("/tasks/{task_id}/comments")
 async def add_comment(

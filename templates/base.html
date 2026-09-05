@@ -232,44 +232,35 @@
             transform: translateY(-50%);
             color: #6c757d;
         }
+        .filters {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="/">
-                <i class="bi bi-kanban"></i> Планировщик
-            </a>
+            <a class="navbar-brand" href="/"><i class="bi bi-kanban"></i> Планировщик</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto align-items-center">
                     {% if user %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="/calendar"><i class="bi bi-calendar-week"></i> Календарь</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/stats"><i class="bi bi-bar-chart-line"></i> Статистика</a>
-                        </li>
+                        <li class="nav-item"><a class="nav-link" href="/calendar"><i class="bi bi-calendar-week"></i> Календарь</a></li>
+                        <li class="nav-item"><a class="nav-link" href="/board"><i class="bi bi-kanban"></i> Доска</a></li>
+                        <li class="nav-item"><a class="nav-link" href="/stats"><i class="bi bi-bar-chart-line"></i> Статистика</a></li>
                         {% if user.role.value == 'admin' %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="/admin"><i class="bi bi-shield-lock"></i> Админ</a>
-                        </li>
+                        <li class="nav-item"><a class="nav-link" href="/admin"><i class="bi bi-shield-lock"></i> Админ</a></li>
                         {% endif %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="/profile"><i class="bi bi-person-circle"></i> {{ user.username }}</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/logout"><i class="bi bi-box-arrow-right"></i> Выйти</a>
-                        </li>
+                        <li class="nav-item"><a class="nav-link" href="/profile"><i class="bi bi-person-circle"></i> {{ user.username }}</a></li>
+                        <li class="nav-item"><a class="nav-link" href="/logout"><i class="bi bi-box-arrow-right"></i> Выйти</a></li>
                     {% else %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="/login"><i class="bi bi-box-arrow-in-right"></i> Войти</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/register"><i class="bi bi-person-plus"></i> Регистрация</a>
-                        </li>
+                        <li class="nav-item"><a class="nav-link" href="/login"><i class="bi bi-box-arrow-in-right"></i> Войти</a></li>
+                        <li class="nav-item"><a class="nav-link" href="/register"><i class="bi bi-person-plus"></i> Регистрация</a></li>
                     {% endif %}
                     <li class="nav-item ms-2">
                         <button id="themeToggle" class="btn btn-outline-light btn-sm">
@@ -290,44 +281,38 @@
     <script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
     <script>
         // Инициализация AOS
-        AOS.init({
-            duration: 600,
-            once: true,
-            offset: 50
-        });
+        AOS.init({ duration: 600, once: true, offset: 50 });
 
-        // Тултипы
-        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        // Тултипы Bootstrap
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
         tooltipTriggerList.map(function (tooltipTriggerEl) {
             return new bootstrap.Tooltip(tooltipTriggerEl);
         });
 
-        // Переключение темы
-        const themeToggle = document.getElementById('themeToggle');
-        const htmlElement = document.documentElement;
-        
-        function setTheme(theme) {
-            htmlElement.setAttribute('data-bs-theme', theme);
-            localStorage.setItem('theme', theme);
-            updateIcon(theme);
-        }
-        
-        function updateIcon(theme) {
-            const icon = themeToggle.querySelector('i');
-            if (theme === 'dark') {
-                icon.className = 'bi bi-sun';
-            } else {
-                icon.className = 'bi bi-moon-stars';
+        // Звуковые эффекты
+        let audioCtx = null;
+        function playSound(type) {
+            const soundEnabled = localStorage.getItem('sound_enabled');
+            if (soundEnabled === 'false') return;
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            if (type === 'success') {
+                osc.frequency.value = 880;
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'error') {
+                osc.frequency.value = 220;
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.2);
             }
         }
-        
-        const savedTheme = localStorage.getItem('theme') || 'light';
-        setTheme(savedTheme);
-        
-        themeToggle.addEventListener('click', () => {
-            const current = htmlElement.getAttribute('data-bs-theme');
-            setTheme(current === 'dark' ? 'light' : 'dark');
-        });
 
         // Глобальные функции
         function showToast(message, type = 'success') {
@@ -339,19 +324,58 @@
                 duration: 3000,
                 gravity: 'top',
                 position: 'right',
-                style: {
-                    background: bg,
-                    borderRadius: '10px',
-                }
+                style: { background: bg, borderRadius: '10px' }
             }).showToast();
         }
 
         function fireConfetti() {
-            confetti({
-                particleCount: 100,
-                spread: 70,
-                origin: { y: 0.6 }
-            });
+            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+        }
+
+        // Переключение темы с учётом 'auto'
+        const themeToggle = document.getElementById('themeToggle');
+        const htmlElement = document.documentElement;
+        
+        function applyTheme(theme) {
+            if (theme === 'auto') {
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                htmlElement.setAttribute('data-bs-theme', prefersDark ? 'dark' : 'light');
+            } else {
+                htmlElement.setAttribute('data-bs-theme', theme);
+            }
+            updateIcon(htmlElement.getAttribute('data-bs-theme'));
+        }
+        
+        function updateIcon(currentTheme) {
+            const icon = themeToggle.querySelector('i');
+            if (currentTheme === 'dark') {
+                icon.className = 'bi bi-sun';
+            } else {
+                icon.className = 'bi bi-moon-stars';
+            }
+        }
+        
+        let savedTheme = localStorage.getItem('theme') || 'auto';
+        applyTheme(savedTheme);
+        
+        themeToggle.addEventListener('click', () => {
+            const current = htmlElement.getAttribute('data-bs-theme');
+            if (current === 'dark') {
+                localStorage.setItem('theme', 'light');
+                applyTheme('light');
+            } else {
+                localStorage.setItem('theme', 'dark');
+                applyTheme('dark');
+            }
+        });
+        
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+            const theme = localStorage.getItem('theme') || 'auto';
+            if (theme === 'auto') applyTheme('auto');
+        });
+        
+        if (localStorage.getItem('sound_enabled') === null) {
+            localStorage.setItem('sound_enabled', 'true');
         }
     </script>
 </body>
