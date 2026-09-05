@@ -1,4 +1,6 @@
-﻿from fastapi import FastAPI, Request, Response, Depends, HTTPException, Form
+﻿import os
+import json
+from fastapi import FastAPI, Request, Response, Depends, HTTPException, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
@@ -10,7 +12,7 @@ from models import User, Task, TaskStatus, TaskAssignee, Comment
 from auth import get_current_user, set_user_cookie, COOKIE_NAME, hash_password, verify_password
 from jinja2 import Environment, FileSystemLoader
 from datetime import datetime, date, timedelta
-import json
+from notifications import start_bot_background, send_telegram_notification
 
 # Настройка Jinja2
 env = Environment(loader=FileSystemLoader('templates'))
@@ -22,6 +24,7 @@ def render_template(name: str, **kwargs) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    start_bot_background()   # Запускаем Telegram-бота в фоне
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -106,6 +109,33 @@ async def logout():
     response.delete_cookie(COOKIE_NAME)
     return response
 
+# ---------- Профиль ----------
+@app.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request, user=Depends(get_current_user)):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(User).where(User.id == user.id))
+        db_user = result.scalar_one_or_none()
+    html = render_template("profile.html", user=db_user, error=None)
+    return HTMLResponse(content=html)
+
+@app.post("/profile", response_class=HTMLResponse)
+async def update_profile(
+    telegram_id: str = Form(""),
+    user=Depends(get_current_user)
+):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(User).where(User.id == user.id))
+        db_user = result.scalar_one_or_none()
+        if db_user:
+            db_user.telegram_id = telegram_id.strip() or None
+            await session.commit()
+            await session.refresh(db_user)
+            html = render_template("profile.html", user=db_user, error=None)
+            return HTMLResponse(content=html)
+        else:
+            html = render_template("profile.html", user=user, error="Пользователь не найден")
+            return HTMLResponse(content=html)
+
 # ---------- Задачи ----------
 @app.post("/tasks/create")
 async def create_task(
@@ -137,16 +167,21 @@ async def create_task(
             deadline=deadline_dt,
             scheduled_date=scheduled_date_dt,
             priority=priority,
-            created_by_id=user["id"],
+            created_by_id=user.id,          # было user["id"]
             status=TaskStatus.new
         )
         session.add(task)
         await session.commit()
         await session.refresh(task)
 
-        assignee = TaskAssignee(task_id=task.id, user_id=user["id"])
+        assignee = TaskAssignee(task_id=task.id, user_id=user.id)  # было user["id"]
         session.add(assignee)
         await session.commit()
+
+        # Уведомление создателю задачи
+        creator = await session.get(User, user.id)  # было user["id"]
+        if creator and creator.telegram_id:
+            await send_telegram_notification(creator.telegram_id, f"Создана задача: {title}")
 
     return RedirectResponse("/", status_code=302)
 
@@ -177,29 +212,51 @@ async def add_comment(
     user=Depends(get_current_user)
 ):
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Task).where(Task.id == task_id))
+        result = await session.execute(
+            select(Task)
+            .options(selectinload(Task.assignees))
+            .where(Task.id == task_id)
+        )
         task = result.scalar_one_or_none()
         if not task:
             raise StarletteHTTPException(status_code=404, detail="Задача не найдена")
 
         comment = Comment(
             task_id=task_id,
-            user_id=user["id"],
+            user_id=user.id,              # было user["id"]
             text=text
         )
         session.add(comment)
         await session.commit()
+
+        # Уведомляем всех участников задачи, кроме автора комментария
+        recipients = [a for a in task.assignees if a.id != user.id]   # было user["id"]
+        for recipient in recipients:
+            if recipient.telegram_id:
+                await send_telegram_notification(
+                    recipient.telegram_id,
+                    f"Новый комментарий в задаче «{task.title}»"
+                )
 
     return RedirectResponse(f"/tasks/{task_id}", status_code=302)
 
 @app.post("/tasks/{task_id}/complete")
 async def complete_task(task_id: int, user=Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Task).where(Task.id == task_id))
+        result = await session.execute(
+            select(Task)
+            .options(selectinload(Task.created_by))
+            .where(Task.id == task_id)
+        )
         task = result.scalar_one_or_none()
         if task:
             task.status = TaskStatus.completed
             await session.commit()
+            if task.created_by and task.created_by.telegram_id:
+                await send_telegram_notification(
+                    task.created_by.telegram_id,
+                    f"Задача «{task.title}» отмечена как выполненная"
+                )
     return RedirectResponse("/", status_code=302)
 
 @app.post("/tasks/{task_id}/delete")
