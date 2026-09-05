@@ -3,9 +3,12 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>📋 Мои задачи</h1>
-    <button class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#newTaskModal">
-        <i class="bi bi-plus-lg"></i> Новая задача
-    </button>
+</div>
+
+<!-- Живой поиск -->
+<div class="search-box">
+    <i class="bi bi-search"></i>
+    <input type="text" id="liveSearch" class="form-control" placeholder="Поиск по задачам...">
 </div>
 
 <!-- Прогресс-бар выполнения -->
@@ -24,6 +27,79 @@
         </div>
     </div>
 </div>
+
+<!-- Список задач -->
+{% if tasks %}
+    <div class="row" id="tasksContainer">
+        {% for task in tasks %}
+        <div class="col-md-6 col-lg-4 mb-4 task-item" data-title="{{ task.title|lower }}" data-description="{{ task.description|lower }}">
+            <div class="card task-card h-100 priority-{{ task.priority }}" data-aos="fade-up" data-aos-delay="{{ loop.index0 * 50 }}">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <a href="/tasks/{{ task.id }}" class="text-decoration-none">{{ task.title }}</a>
+                    </h5>
+                    <p class="card-text">{{ task.description or 'Нет описания' }}</p>
+                    <div class="d-flex flex-wrap gap-2 mb-2">
+                        {% if task.status.value == 'new' %}
+                            <span class="badge bg-secondary">Новая</span>
+                        {% elif task.status.value == 'in_progress' %}
+                            <span class="badge bg-primary">В работе</span>
+                        {% elif task.status.value == 'on_review' %}
+                            <span class="badge bg-warning text-dark">На проверке</span>
+                        {% elif task.status.value == 'completed' %}
+                            <span class="badge bg-success">Завершена</span>
+                        {% endif %}
+                        {% if task.priority == 'high' %}
+                            <span class="badge bg-danger">Высокий приоритет</span>
+                        {% elif task.priority == 'low' %}
+                            <span class="badge bg-info">Низкий приоритет</span>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex align-items-center mt-2">
+                        <div class="me-2">
+                            {% for assignee in task.assignees %}
+                                {% if assignee.telegram_id %}
+                                <span class="avatar-circle" data-bs-toggle="tooltip" title="{{ assignee.full_name or assignee.username }}">
+                                    <img src="https://t.me/i/userpic/{{ assignee.telegram_id }}" alt="">
+                                </span>
+                                {% else %}
+                                <span class="avatar-circle" data-bs-toggle="tooltip" title="{{ assignee.full_name or assignee.username }}">
+                                    {{ (assignee.full_name or assignee.username)[:1]|upper }}
+                                </span>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        <small class="text-muted">{{ task.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                    </div>
+                    {% if task.deadline %}
+                        <p class="text-muted small mb-1 mt-1">Срок: {{ task.deadline.strftime('%d.%m.%Y %H:%M') }}</p>
+                    {% endif %}
+                    {% if task.scheduled_date %}
+                        <p class="text-muted small mb-1">План: {{ task.scheduled_date.strftime('%d.%m.%Y') }}</p>
+                    {% endif %}
+                </div>
+                <div class="card-footer d-flex justify-content-between align-items-center">
+                    <form method="post" action="/tasks/{{ task.id }}/complete" class="complete-form d-inline">
+                        {% if task.status.value != 'completed' %}
+                            <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check2"></i> Выполнено</button>
+                        {% endif %}
+                    </form>
+                    <form method="post" action="/tasks/{{ task.id }}/delete" class="delete-form d-inline">
+                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> Удалить</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="alert alert-info">Задач пока нет. Создайте первую!</div>
+{% endif %}
+
+<!-- Плавающая кнопка -->
+<button class="fab" data-bs-toggle="modal" data-bs-target="#newTaskModal" title="Новая задача">
+    <i class="bi bi-plus-lg fs-2"></i>
+</button>
 
 <!-- Модальное окно создания задачи -->
 <div class="modal fade" id="newTaskModal" tabindex="-1" aria-labelledby="newTaskModalLabel" aria-hidden="true">
@@ -69,70 +145,24 @@
     </div>
 </div>
 
-{% if tasks %}
-    <div class="row">
-        {% for task in tasks %}
-        <div class="col-md-6 col-lg-4 mb-4">
-            <div class="card task-card h-100 priority-{{ task.priority }}">
-                <div class="card-body">
-                    <h5 class="card-title">
-                        <a href="/tasks/{{ task.id }}" class="text-decoration-none">{{ task.title }}</a>
-                    </h5>
-                    <p class="card-text">{{ task.description or 'Нет описания' }}</p>
-                    <div class="d-flex flex-wrap gap-2 mb-2">
-                        {% if task.status.value == 'new' %}
-                            <span class="badge bg-secondary">Новая</span>
-                        {% elif task.status.value == 'in_progress' %}
-                            <span class="badge bg-primary">В работе</span>
-                        {% elif task.status.value == 'on_review' %}
-                            <span class="badge bg-warning text-dark">На проверке</span>
-                        {% elif task.status.value == 'completed' %}
-                            <span class="badge bg-success">Завершена</span>
-                        {% endif %}
-                        {% if task.priority == 'high' %}
-                            <span class="badge bg-danger">Высокий приоритет</span>
-                        {% elif task.priority == 'low' %}
-                            <span class="badge bg-info">Низкий приоритет</span>
-                        {% endif %}
-                    </div>
-                    <div class="d-flex align-items-center mt-2">
-                        <div class="me-2">
-                            {% for assignee in task.assignees %}
-                                <span class="avatar-circle" title="{{ assignee.full_name or assignee.username }}" data-bs-toggle="tooltip">
-                                    {{ (assignee.full_name or assignee.username)[:1]|upper }}
-                                </span>
-                            {% endfor %}
-                        </div>
-                        <small class="text-muted">{{ task.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
-                    </div>
-                    {% if task.deadline %}
-                        <p class="text-muted small mb-1 mt-1">Срок: {{ task.deadline.strftime('%d.%m.%Y %H:%M') }}</p>
-                    {% endif %}
-                    {% if task.scheduled_date %}
-                        <p class="text-muted small mb-1">План: {{ task.scheduled_date.strftime('%d.%m.%Y') }}</p>
-                    {% endif %}
-                </div>
-                <div class="card-footer d-flex justify-content-between align-items-center">
-                    <form method="post" action="/tasks/{{ task.id }}/complete" class="complete-form d-inline">
-                        {% if task.status.value != 'completed' %}
-                            <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check2"></i> Выполнено</button>
-                        {% endif %}
-                    </form>
-                    <form method="post" action="/tasks/{{ task.id }}/delete" class="delete-form d-inline">
-                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> Удалить</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-{% else %}
-    <div class="alert alert-info">Задач пока нет. Создайте первую!</div>
-{% endif %}
-
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Перехват отправки формы завершения задачи для конфетти
+    // Живой поиск
+    const searchInput = document.getElementById('liveSearch');
+    searchInput.addEventListener('input', function() {
+        const query = this.value.toLowerCase();
+        document.querySelectorAll('.task-item').forEach(item => {
+            const title = item.dataset.title;
+            const description = item.dataset.description;
+            if (title.includes(query) || description.includes(query)) {
+                item.style.display = '';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    });
+
+    // Конфетти при завершении
     document.querySelectorAll('.complete-form').forEach(form => {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
@@ -142,7 +172,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Перехват удаления для тоста
+    // Тост при удалении
     document.querySelectorAll('.delete-form').forEach(form => {
         form.addEventListener('submit', function(e) {
             e.preventDefault();

@@ -288,6 +288,8 @@ async def delete_task(task_id: int, user=Depends(get_current_user)):
 # ---------- Календарь ----------
 @app.get("/calendar", response_class=HTMLResponse)
 async def calendar_page(request: Request, user=Depends(get_current_user)):
+    week_offset = int(request.query_params.get("week_offset", 0))
+
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(Task)
@@ -297,7 +299,7 @@ async def calendar_page(request: Request, user=Depends(get_current_user)):
         tasks = result.scalars().all()
 
     today = date.today()
-    start_of_week = today - timedelta(days=today.weekday())
+    start_of_week = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
     days = [start_of_week + timedelta(days=i) for i in range(7)]
 
     tasks_by_day = {d: [] for d in days}
@@ -310,7 +312,8 @@ async def calendar_page(request: Request, user=Depends(get_current_user)):
         user=user,
         days=days,
         tasks_by_day=tasks_by_day,
-        TaskStatus=TaskStatus
+        TaskStatus=TaskStatus,
+        week_offset=week_offset
     )
     return HTMLResponse(content=html)
 
