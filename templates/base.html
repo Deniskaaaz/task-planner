@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
     <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/dist/tippy.css">
     <style>
+        /* Все предыдущие стили + новый стиль для просроченных */
         :root {
             --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --gradient-success: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
@@ -58,6 +59,7 @@
         .priority-low { border-left-color: #28a745; }
         .priority-normal { border-left-color: #007bff; }
         .priority-high { border-left-color: #dc3545; }
+        .task-card.overdue { border-color: #dc3545 !important; box-shadow: 0 0 10px rgba(220,53,69,0.3); }
         .avatar-circle {
             display: inline-flex; align-items: center; justify-content: center;
             width: 32px; height: 32px; border-radius: 50%; overflow: hidden;
@@ -168,6 +170,11 @@
     <div class="container">
         {% block content %}{% endblock %}
     </div>
+
+    <script>
+        // Устанавливаем тему из настроек пользователя
+        var userThemePreference = "{{ user.theme_preference|default('auto') }}";
+    </script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
@@ -286,6 +293,7 @@
         // Переключение темы
         const themeToggle = document.getElementById('themeToggle');
         const htmlElement = document.documentElement;
+
         function applyTheme(theme) {
             if (theme === 'auto') {
                 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -295,12 +303,16 @@
             }
             updateIcon(htmlElement.getAttribute('data-bs-theme'));
         }
+
         function updateIcon(currentTheme) {
             const icon = themeToggle.querySelector('i');
             icon.className = currentTheme === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars';
         }
-        let savedTheme = localStorage.getItem('theme') || 'auto';
+
+        // Загружаем тему из переменной userThemePreference (если задана) или localStorage
+        let savedTheme = localStorage.getItem('theme') || userThemePreference || 'auto';
         applyTheme(savedTheme);
+
         themeToggle.addEventListener('click', () => {
             const current = htmlElement.getAttribute('data-bs-theme');
             if (current === 'dark') {
@@ -311,10 +323,12 @@
                 applyTheme('dark');
             }
         });
+
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-            const theme = localStorage.getItem('theme') || 'auto';
+            const theme = localStorage.getItem('theme') || userThemePreference || 'auto';
             if (theme === 'auto') applyTheme('auto');
         });
+
         if (localStorage.getItem('sound_enabled') === null) localStorage.setItem('sound_enabled', 'true');
     </script>
 </body>

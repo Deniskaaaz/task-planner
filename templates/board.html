@@ -6,7 +6,7 @@
 <div class="row">
     <div class="col-md-3">
         <div class="column" data-status="new">
-            <h4 class="text-center">Новые</h4>
+            <h4 class="text-center">Новые ({{ columns['new']|length }})</h4>
             <div class="task-list" style="min-height: 300px;">
                 {% for task in columns['new'] %}
                 <div class="card task-card mb-2" draggable="true" data-task-id="{{ task.id }}">
@@ -20,7 +20,7 @@
     </div>
     <div class="col-md-3">
         <div class="column" data-status="in_progress">
-            <h4 class="text-center">В работе</h4>
+            <h4 class="text-center">В работе ({{ columns['in_progress']|length }})</h4>
             <div class="task-list" style="min-height: 300px;">
                 {% for task in columns['in_progress'] %}
                 <div class="card task-card mb-2" draggable="true" data-task-id="{{ task.id }}">
@@ -34,7 +34,7 @@
     </div>
     <div class="col-md-3">
         <div class="column" data-status="on_review">
-            <h4 class="text-center">На проверке</h4>
+            <h4 class="text-center">На проверке ({{ columns['on_review']|length }})</h4>
             <div class="task-list" style="min-height: 300px;">
                 {% for task in columns['on_review'] %}
                 <div class="card task-card mb-2" draggable="true" data-task-id="{{ task.id }}">
@@ -48,7 +48,7 @@
     </div>
     <div class="col-md-3">
         <div class="column" data-status="completed">
-            <h4 class="text-center">Завершены</h4>
+            <h4 class="text-center">Завершены ({{ columns['completed']|length }})</h4>
             <div class="task-list" style="min-height: 300px;">
                 {% for task in columns['completed'] %}
                 <div class="card task-card mb-2" draggable="true" data-task-id="{{ task.id }}">

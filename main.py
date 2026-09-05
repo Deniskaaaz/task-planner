@@ -2,12 +2,13 @@
 import json
 import csv
 import io
+import re
 from fastapi import FastAPI, Request, Response, Depends, HTTPException, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from database import init_db, AsyncSessionLocal
 from models import User, Task, TaskStatus, TaskAssignee, Comment, UserRole
@@ -24,6 +25,7 @@ def render_template(name: str, **kwargs) -> str:
     return template.render(**kwargs)
 
 def is_admin_telegram_id(telegram_id: str) -> bool:
+    """Проверяет, входит ли telegram_id в список администраторов из окружения."""
     if not telegram_id:
         return False
     admin_ids_str = os.environ.get("ADMIN_TELEGRAM_IDS", "")
@@ -35,7 +37,7 @@ def is_admin_telegram_id(telegram_id: str) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    start_bot_background()
+    start_bot_background()   # Запускаем Telegram-бота в фоне
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -46,7 +48,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return RedirectResponse("/login", status_code=302)
     return HTMLResponse(content=str(exc.detail), status_code=exc.status_code)
 
-# ---------- Главная страница ----------
+# ---------- Главная страница с фильтрацией и сортировкой ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(
     request: Request,
@@ -80,10 +82,10 @@ async def index(
             priority_order = {"high": 0, "normal": 1, "low": 2}
             tasks_raw = (await session.execute(query)).scalars().all()
             tasks = sorted(tasks_raw, key=lambda t: priority_order.get(t.priority, 1))
-            # выводим закреплённые первыми
             tasks = sorted(tasks, key=lambda t: not t.pinned)
             html = render_template("index.html", user=user, tasks=tasks, TaskStatus=TaskStatus,
-                                   current_status=status, current_priority=priority, current_sort=sort, current_search=search)
+                                   current_status=status, current_priority=priority, current_sort=sort, current_search=search,
+                                   now=datetime.now())
             return HTMLResponse(content=html)
         elif sort == "created_at_asc":
             query = query.order_by(Task.created_at.asc())
@@ -91,11 +93,11 @@ async def index(
             query = query.order_by(Task.created_at.desc())
 
         tasks = (await session.execute(query)).scalars().all()
-        # закреплённые всегда первыми
         tasks = sorted(tasks, key=lambda t: not t.pinned)
 
     html = render_template("index.html", user=user, tasks=tasks, TaskStatus=TaskStatus,
-                           current_status=status, current_priority=priority, current_sort=sort, current_search=search)
+                           current_status=status, current_priority=priority, current_sort=sort, current_search=search,
+                           now=datetime.now())
     return HTMLResponse(content=html)
 
 # ---------- Аутентификация ----------
@@ -173,22 +175,34 @@ async def profile_page(request: Request, user=Depends(get_current_user)):
 
 @app.post("/profile")
 async def update_profile(
+    full_name: str = Form(""),
     telegram_id: str = Form(""),
+    theme_preference: str = Form("auto"),
+    sound_enabled: str = Form("true"),
+    new_password: str = Form(""),
     user=Depends(get_current_user)
 ):
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(User).where(User.id == user.id))
         db_user = result.scalar_one_or_none()
-        if db_user:
-            db_user.telegram_id = telegram_id.strip() or None
-            if is_admin_telegram_id(db_user.telegram_id):
-                db_user.role = UserRole.admin
-            await session.commit()
-            await session.refresh(db_user)
-            return RedirectResponse("/profile?success=1", status_code=302)
-        else:
-            html = render_template("profile.html", user=user, error="Пользователь не найден", success=False)
-            return HTMLResponse(content=html)
+        if not db_user:
+            return HTMLResponse(render_template("profile.html", user=user, error="Пользователь не найден", success=False), status_code=404)
+
+        db_user.full_name = full_name.strip() or db_user.full_name
+        db_user.telegram_id = telegram_id.strip() or None
+        db_user.theme_preference = theme_preference
+        db_user.sound_enabled = sound_enabled.lower() == "true"
+
+        if new_password:
+            db_user.password_hash = hash_password(new_password)
+
+        # Проверка админа по telegram_id
+        if is_admin_telegram_id(db_user.telegram_id):
+            db_user.role = UserRole.admin
+
+        await session.commit()
+        await session.refresh(db_user)
+        return RedirectResponse("/profile?success=1", status_code=302)
 
 # ---------- Задачи ----------
 @app.post("/tasks/create")
@@ -233,6 +247,7 @@ async def create_task(
         session.add(assignee)
         await session.commit()
 
+        # Уведомление создателю задачи
         creator = await session.get(User, user.id)
         if creator and creator.telegram_id:
             await send_telegram_notification(creator.telegram_id, f"Создана задача: {title}")
@@ -342,7 +357,6 @@ async def add_comment(
             raise StarletteHTTPException(status_code=404, detail="Задача не найдена")
 
         # Обработка упоминаний
-        import re
         mentions = re.findall(r'@(\w+)', text)
         mentioned_users = []
         if mentions:
@@ -360,7 +374,7 @@ async def add_comment(
         session.add(comment)
         await session.commit()
 
-        # Уведомления участникам (как раньше)
+        # Уведомления участникам
         recipients = [a for a in task.assignees if a.id != user.id]
         for recipient in recipients:
             if recipient.telegram_id:

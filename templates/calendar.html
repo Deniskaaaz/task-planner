@@ -21,9 +21,17 @@
          style="min-height: 400px; border: 1px solid #dee2e6; border-radius: 12px; margin: 5px; padding: 10px;">
         <h5 class="text-center">{{ day.strftime('%A') }}</h5>
         <p class="text-center text-muted small">{{ day.strftime('%d.%m.%Y') }}</p>
+        {% set tasks_for_day = tasks_by_day[day] %}
+        {% set total_day = tasks_for_day|length %}
+        {% set completed_day = tasks_for_day|selectattr('status.value', 'equalto', 'completed')|list|length %}
+        {% set percent_day = (completed_day / total_day * 100) if total_day > 0 else 0 %}
+        <div class="progress mb-2" style="height: 6px;">
+            <div class="progress-bar bg-success" style="width: {{ percent_day|round(1) }}%;"></div>
+        </div>
+        <small class="text-muted d-block text-center mb-2">{{ completed_day }}/{{ total_day }}</small>
         <hr>
         <div class="tasks-container" data-date="{{ day.isoformat() }}" style="min-height: 150px;">
-            {% for task in tasks_by_day[day] %}
+            {% for task in tasks_for_day %}
             <div class="card task-card mb-2 priority-{{ task.priority }}" draggable="true" data-task-id="{{ task.id }}" style="cursor: grab;" data-aos="fade-up" data-aos-delay="{{ loop.index0 * 30 }}">
                 <div class="card-body py-2 px-2">
                     <a href="/tasks/{{ task.id }}" class="text-decoration-none">

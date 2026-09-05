@@ -3,31 +3,42 @@
 {% block content %}
 <h1 class="mb-4"><i class="bi bi-person-gear"></i> Профиль</h1>
 <div class="row justify-content-center">
-    <div class="col-md-6">
+    <div class="col-md-8">
         <div class="card shadow-sm">
             <div class="card-body">
                 <h5 class="card-title">{{ user.username }}</h5>
-                <p class="text-muted">Полное имя: {{ user.full_name or 'Не указано' }}</p>
                 <hr>
-
                 {% if success %}
-                <div class="alert alert-success" role="alert">
-                    Изменения сохранены!
-                </div>
+                <div class="alert alert-success">Изменения сохранены!</div>
                 {% endif %}
-
                 {% if error %}
-                <div class="alert alert-danger" role="alert">
-                    {{ error }}
-                </div>
+                <div class="alert alert-danger">{{ error }}</div>
                 {% endif %}
-
                 <form method="post" action="/profile">
                     <div class="mb-3">
-                        <label for="telegram_id" class="form-label">Ваш Telegram ID</label>
-                        <input type="text" class="form-control" id="telegram_id" name="telegram_id"
-                               value="{{ user.telegram_id or '' }}" placeholder="Например, 123456789">
-                        <div class="form-text">Узнать свой ID можно у бота @userinfobot</div>
+                        <label class="form-label">Полное имя</label>
+                        <input type="text" class="form-control" name="full_name" value="{{ user.full_name or '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Telegram ID</label>
+                        <input type="text" class="form-control" name="telegram_id" value="{{ user.telegram_id or '' }}">
+                        <div class="form-text">Узнать ID можно у @userinfobot</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Тема оформления</label>
+                        <select class="form-select" name="theme_preference">
+                            <option value="auto" {% if user.theme_preference == 'auto' %}selected{% endif %}>Автоматически</option>
+                            <option value="light" {% if user.theme_preference == 'light' %}selected{% endif %}>Светлая</option>
+                            <option value="dark" {% if user.theme_preference == 'dark' %}selected{% endif %}>Тёмная</option>
+                        </select>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="sound_enabled" name="sound_enabled" value="true" {% if user.sound_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="sound_enabled">Включить звуковые уведомления</label>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Новый пароль (оставьте пустым, чтобы не менять)</label>
+                        <input type="password" class="form-control" name="new_password">
                     </div>
                     <button type="submit" class="btn btn-primary">Сохранить</button>
                 </form>
