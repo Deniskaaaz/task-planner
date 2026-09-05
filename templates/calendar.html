@@ -15,7 +15,9 @@
             {% for task in tasks_by_day[day] %}
             <div class="card task-card mb-2 priority-{{ task.priority }}" draggable="true" data-task-id="{{ task.id }}" style="cursor: grab;">
                 <div class="card-body py-2 px-2">
-                    <strong>{{ task.title }}</strong>
+                    <a href="/tasks/{{ task.id }}" class="text-decoration-none">
+                        <strong>{{ task.title }}</strong>
+                    </a>
                     {% if task.status.value == 'completed' %}
                         <span class="badge bg-success">✓</span>
                     {% endif %}
@@ -36,9 +38,12 @@
             card.addEventListener('dragstart', function(e) {
                 e.dataTransfer.setData('text/plain', this.dataset.taskId);
                 this.style.opacity = '0.4';
+                // Запрещаем переход по ссылке во время перетаскивания
+                this.querySelectorAll('a').forEach(link => link.style.pointerEvents = 'none');
             });
             card.addEventListener('dragend', function() {
                 this.style.opacity = '1';
+                this.querySelectorAll('a').forEach(link => link.style.pointerEvents = '');
             });
         });
 
@@ -70,6 +75,8 @@
                         if (card) {
                             this.appendChild(card);
                             card.style.opacity = '1';
+                            // Восстанавливаем ссылки
+                            card.querySelectorAll('a').forEach(link => link.style.pointerEvents = '');
                         }
                     } else {
                         alert('Ошибка при перемещении');
