@@ -52,6 +52,11 @@
                         <li class="nav-item">
                             <a class="nav-link" href="/stats"><i class="bi bi-bar-chart-line"></i> Статистика</a>
                         </li>
+                        {% if user.role.value == 'admin' %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="/admin"><i class="bi bi-shield-lock"></i> Админ</a>
+                        </li>
+                        {% endif %}
                         <li class="nav-item">
                             <a class="nav-link" href="/profile"><i class="bi bi-person-circle"></i> {{ user.username }}</a>
                         </li>
